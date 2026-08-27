@@ -1,0 +1,23 @@
+# Render Blueprint (https://render.com) — deploy from your GitHub repo.
+# NOTE: a persistent disk (so your logged data survives restarts/redeploys)
+# requires a paid instance. The free tier has an EPHEMERAL filesystem, meaning
+# the SQLite database is wiped on every redeploy — fine for a demo, NOT for a
+# "keep history forever" logger. See DEPLOY.md.
+services:
+  - type: web
+    name: data-logger
+    runtime: docker
+    plan: starter            # $7/mo — needed for the persistent disk below
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: DB_PATH
+        value: /data/data_logger.db
+      - key: PORT
+        value: 8080
+      - key: API_KEY          # protects /api/ingest once public; set same value in firmware
+        generateValue: true
+    disk:
+      name: data
+      mountPath: /data
+      sizeGB: 1

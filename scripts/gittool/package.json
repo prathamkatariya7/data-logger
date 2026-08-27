@@ -1,0 +1,10 @@
+{
+  "name": "gittool",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Pure-JS git (isomorphic-git) helper to commit/push without native Git — used because this network blocks GitHub release-binary downloads.",
+  "dependencies": {
+    "isomorphic-git": "^1.27.1"
+  }
+}

@@ -1,0 +1,13 @@
+node_modules
+frontend/node_modules
+frontend/dist
+data
+*.db
+*.db-shm
+*.db-wal
+.git
+.gitignore
+*.log
+.env
+Data_Logger
+DataLogger_ESP32_WebServer
