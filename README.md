@@ -331,3 +331,11 @@ Arduino libraries: **ArduinoJson** (Library Manager). `WiFi`, `HTTPClient`,
 
 > If the laptop's LAN IP changes, update `SERVER_URL` and re-flash — this is why
 > a static IP / DHCP reservation for the laptop is recommended.
+
+---
+
+## ☁️ Production Cloud Deployment (AWS)
+
+For full step-by-step instructions on hosting this server on **AWS EC2 Free Tier** for 1,000+ simultaneous users:
+👉 **See [`DEPLOY_AWS.md`](file:///d:/Pratham/Firmware/Cortex%20IDE/Data%20Logger%20Webserver/DEPLOY_AWS.md)** for complete setup details (EC2, Elastic IP, Nginx, PM2, systemd).
+
