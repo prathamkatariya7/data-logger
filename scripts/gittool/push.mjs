@@ -6,7 +6,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import git from 'isomorphic-git';
-import http from 'isomorphic-git/http/node/index.js';
+import http from 'isomorphic-git/http/node';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dir = path.resolve(__dirname, '..', '..');

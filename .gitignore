@@ -7,3 +7,5 @@ data/*.db-wal
 *.log
 .DS_Store
 .env
+.snowflake/
+*.jar

@@ -1,22 +1,21 @@
 /* ============================================================================
- *  ESP32 - I2C MASTER + HTTP FORWARDER  (v7 - NTP time, no DS1307)
+ *  ESP32 - I2C MASTER + HTTP FORWARDER  (v8 - diagnostics + recording LED)
  *  Polls the ATmega4808 sensor node (PT100 x10 raw mV + MAX6675 x2 raw12) over
  *  the 5V I2C bus (level-shifted from the ESP32's native 3.3V I2C via TXS0108E)
- *  and POSTs a raw-data JSON snapshot to the server on your laptop every cycle.
- *  Does NOT host a webpage, does NOT log to a local file, and does NOT compute
- *  any temperature.
+ *  and POSTs a raw-data JSON snapshot to the server every cycle.
  *
- *  CHANGE IN v7 - TIMEKEEPING MOVED TO NTP (INTERNET):
- *    The DS1307 hardware RTC is NO LONGER USED. All the I2C RTC reading and
- *    the compile-time-seeding logic from v6 has been REMOVED. The ESP32 now
- *    gets accurate wall-clock time over the internet via NTP (SNTP), and sends
- *    that timestamp to the server in every POST. The DS1307 chip can stay on
- *    the board unused - nothing here talks to address 0x68 anymore.
+ *  CHANGE IN v8 (vs v7):
+ *    * Every POST now also carries device diagnostics: wifi_rssi, free_heap,
+ *      i2c_consec_fails, and fw_version. The server shows these live.
+ *    * The server's ingest response echoes the recording state; the ESP32
+ *      drives an on-board status LED from it (solid = recording, slow blink
+ *      = idle). Recording start/stop is controlled entirely from the web UI;
+ *      the firmware only reflects it. Storage gating happens server-side, so
+ *      no firmware change is needed to "not store" - the ESP32 keeps POSTing
+ *      and the server simply does not persist when recording is stopped.
  *
- *    Everything else is unchanged from v6: the ATmega4808 I2C block layout,
- *    the raw-only payload (no temperature math on-device), and the I2C bus
- *    recovery for the level shifter (still needed for the ATmega path - it is
- *    unrelated to the RTC removal).
+ *  v7 behavior retained: NTP internet time (no DS1307), raw-only payload, and
+ *  I2C bus recovery for the level shifter.
  * ----------------------------------------------------------------------------
  *  BOARD / TOOLCHAIN
  *    Arduino IDE, ESP32 board package (espressif/arduino-esp32 2.x+)
@@ -65,6 +64,19 @@ const char *SERVER_URL = "http://172.16.50.173:8080/api/ingest";
 const char *DEVICE_API_KEY = "";
 
 const char *DEVICE_ID = "datalogger-01";
+
+// ----------------------------------------------------------------------------
+// v8 additions:
+//   * Diagnostics in every POST: WiFi RSSI, free heap, I2C consecutive-fail
+//     count, and firmware version. The server surfaces these in its
+//     Diagnostics panel.
+//   * The server echoes the current recording state in its ingest response
+//     ({"recording": true/false}). We parse it and drive a status LED:
+//       recording -> LED solid ON;  idle -> LED slow blink.
+// ----------------------------------------------------------------------------
+#define FW_VERSION      "v8"
+#define STATUS_LED_PIN  2      // on-board LED on most ESP32 dev boards (GPIO2)
+volatile bool g_recording = false;
 
 // ----------------------------------------------------------------------------
 // NTP time configuration (v7). India = GMT+5:30, no daylight saving.
@@ -351,6 +363,12 @@ bool postSnapshotToServer(const DashboardData &snap) {
   doc["atmega_uptime_ms"] = snap.atmegaUptimeMs;
   doc["esp_uptime_ms"] = millis();
 
+  // v8 diagnostics — reported every cycle for the server's Diagnostics panel.
+  doc["wifi_rssi"] = WiFi.RSSI();
+  doc["free_heap"] = (uint32_t)ESP.getFreeHeap();
+  doc["i2c_consec_fails"] = g_atmegaConsecFails;
+  doc["fw_version"] = FW_VERSION;
+
   // NTP timestamp (top-level - the server prefers these over its own clock).
   char timeStr[16], dateStr[16];
   uint32_t epoch = 0;
@@ -406,6 +424,15 @@ bool postSnapshotToServer(const DashboardData &snap) {
   if (strlen(DEVICE_API_KEY) > 0) http.addHeader("X-Device-Key", DEVICE_API_KEY);
 
   int code = http.POST(body);
+  // Parse the server's response so we can reflect the recording state on the
+  // status LED. Body is small: {"ok":true,"recording":true,"session_id":N}.
+  if (code >= 200 && code < 300) {
+    String resp = http.getString();
+    JsonDocument respDoc;
+    if (deserializeJson(respDoc, resp) == DeserializationError::Ok) {
+      g_recording = respDoc["recording"] | false;
+    }
+  }
   http.end();
 
   if (code < 200 || code >= 300) {
@@ -447,6 +474,8 @@ void ensureWifi() {
 
 void setup() {
   Serial.begin(115200);
+  pinMode(STATUS_LED_PIN, OUTPUT);
+  digitalWrite(STATUS_LED_PIN, LOW);
   memset(&g_data, 0, sizeof(g_data));
   g_dataMutex = xSemaphoreCreateMutex();
   g_i2cBusMutex = xSemaphoreCreateMutex();
@@ -480,6 +509,14 @@ void loop() {
       xSemaphoreGive(g_dataMutex);
     }
     postSnapshotToServer(snap);
+  }
+
+  // Status LED: solid ON while the server says we're recording; a slow ~1 Hz
+  // blink when idle (so you can see the board is alive but not logging).
+  if (g_recording) {
+    digitalWrite(STATUS_LED_PIN, HIGH);
+  } else {
+    digitalWrite(STATUS_LED_PIN, (millis() / 1000) % 2 ? HIGH : LOW);
   }
 
   delay(10);

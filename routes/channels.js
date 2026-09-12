@@ -50,6 +50,14 @@ router.get('/:type/:num', (req, res) => {
     device_id: req.params.id,
     channel_type: ch.type,
     channel_num: ch.num,
+    display_name: cfg.display_name || (ch.type === 'pt100' ? `PT100_${ch.num}` : `TC_${ch.num}`),
+    unit: cfg.unit || '°C',
+    enabled: cfg.enabled !== 0,
+    alarm: {
+      enabled: !!cfg.alarm_enabled,
+      low: cfg.alarm_low,
+      high: cfg.alarm_high,
+    },
     formula_params: JSON.parse(cfg.formula_params),
     master: {
       enabled: !!cfg.master_enabled,
@@ -191,6 +199,115 @@ router.get('/:type/:num/readings', (req, res) => {
       error_factor: r.error_factor_at_time,
     }))
   );
+});
+
+// PATCH /:type/:num — channel metadata: display_name, unit, enabled.
+router.patch('/:type/:num', (req, res) => {
+  if (!ensureDevice(req, res)) return;
+  const ch = parseChannel(req, res);
+  if (!ch) return;
+
+  const cfg = getOrCreateChannelConfig(req.params.id, ch.type, ch.num);
+  const body = req.body || {};
+
+  let name = cfg.display_name || (ch.type === 'pt100' ? `PT100_${ch.num}` : `TC_${ch.num}`);
+  if (body.display_name !== undefined) {
+    const trimmed = String(body.display_name).trim();
+    if (!trimmed) return res.status(400).json({ error: 'display_name cannot be empty' });
+    if (trimmed.length > 64) return res.status(400).json({ error: 'display_name too long (max 64)' });
+    name = trimmed;
+  }
+  const unit = body.unit !== undefined ? String(body.unit).trim().slice(0, 16) || '°C' : cfg.unit || '°C';
+  const enabled = body.enabled !== undefined ? (body.enabled ? 1 : 0) : cfg.enabled;
+
+  stmts.updateChannelMeta.run({
+    device_id: req.params.id,
+    channel_type: ch.type,
+    channel_num: ch.num,
+    display_name: name,
+    unit,
+    enabled,
+  });
+
+  realtime.broadcastSnapshot(req.params.id, buildDeviceSnapshot(req.params.id));
+  res.json({ display_name: name, unit, enabled: enabled !== 0 });
+});
+
+// PUT /:type/:num/alarm — set alarm thresholds. Body: { low, high, enabled }.
+router.put('/:type/:num/alarm', (req, res) => {
+  if (!ensureDevice(req, res)) return;
+  const ch = parseChannel(req, res);
+  if (!ch) return;
+
+  getOrCreateChannelConfig(req.params.id, ch.type, ch.num);
+  const body = req.body || {};
+  const low = body.low === '' || body.low == null ? null : Number(body.low);
+  const high = body.high === '' || body.high == null ? null : Number(body.high);
+  if (low != null && !Number.isFinite(low)) return res.status(400).json({ error: 'low must be numeric' });
+  if (high != null && !Number.isFinite(high)) return res.status(400).json({ error: 'high must be numeric' });
+  if (low != null && high != null && low >= high) {
+    return res.status(400).json({ error: 'low must be less than high' });
+  }
+  const enabled = body.enabled === false ? 0 : 1;
+
+  stmts.setChannelAlarm.run({
+    device_id: req.params.id,
+    channel_type: ch.type,
+    channel_num: ch.num,
+    alarm_enabled: enabled,
+    alarm_low: low,
+    alarm_high: high,
+  });
+
+  realtime.broadcastSnapshot(req.params.id, buildDeviceSnapshot(req.params.id));
+  res.json({ enabled: !!enabled, low, high });
+});
+
+// DELETE /:type/:num/alarm — disable + clear thresholds.
+router.delete('/:type/:num/alarm', (req, res) => {
+  if (!ensureDevice(req, res)) return;
+  const ch = parseChannel(req, res);
+  if (!ch) return;
+  getOrCreateChannelConfig(req.params.id, ch.type, ch.num);
+  stmts.setChannelAlarm.run({
+    device_id: req.params.id,
+    channel_type: ch.type,
+    channel_num: ch.num,
+    alarm_enabled: 0,
+    alarm_low: null,
+    alarm_high: null,
+  });
+  realtime.broadcastSnapshot(req.params.id, buildDeviceSnapshot(req.params.id));
+  res.json({ enabled: false });
+});
+
+// GET /:type/:num/stats?window_ms=.. — live statistics over a trailing window.
+router.get('/:type/:num/stats', (req, res) => {
+  if (!ensureDevice(req, res)) return;
+  const ch = parseChannel(req, res);
+  if (!ch) return;
+
+  const windowMs = Math.min(Math.max(parseInt(req.query.window_ms, 10) || 300000, 1000), 30 * 86400000);
+  const since = new Date(Date.now() - windowMs).toISOString();
+
+  const agg = stmts.channelStats.get(req.params.id, ch.type, ch.num, since);
+  // Standard deviation (population) — compute from the values in the window.
+  let stddev = null;
+  if (agg && agg.n > 0 && agg.avg_c != null) {
+    const rows = stmts.channelValuesSince.all(req.params.id, ch.type, ch.num, since);
+    const mean = agg.avg_c;
+    const variance = rows.reduce((s, r) => s + (r.calculated_temp_c - mean) ** 2, 0) / rows.length;
+    stddev = Math.sqrt(variance);
+  }
+
+  res.json({
+    window_ms: windowMs,
+    count: agg ? agg.n : 0,
+    min: agg ? agg.min_c : null,
+    max: agg ? agg.max_c : null,
+    avg: agg ? agg.avg_c : null,
+    stddev,
+  });
 });
 
 module.exports = router;

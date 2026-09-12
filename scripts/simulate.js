@@ -6,7 +6,7 @@
 //   node scripts/simulate.js sim-02         -> custom device id
 //   SERVER_URL=http://192.168.1.50:3000 node scripts/simulate.js
 const deviceId = process.argv[2] || 'sim-logger-01';
-const base = process.env.SERVER_URL || 'http://127.0.0.1:3000';
+const base = process.env.SERVER_URL || 'http://127.0.0.1:8080';
 const url = `${base.replace(/\/$/, '')}/api/ingest`;
 const apiKey = process.env.API_KEY || null;
 
@@ -44,6 +44,11 @@ function payload() {
     atmega_status: 1,
     atmega_uptime_ms: tick * 1000,
     esp_uptime_ms: tick * 1000,
+    // v8 diagnostics
+    wifi_rssi: -50 - Math.round(Math.random() * 25),
+    free_heap: 210000 + Math.round(Math.random() * 8000),
+    i2c_consec_fails: 0,
+    fw_version: 'sim-v8',
     // v7 firmware contract: NTP time sent at the top level.
     time_valid: true,
     time: `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`,
@@ -65,7 +70,11 @@ async function post() {
       body: JSON.stringify(payload()),
     });
     if (!res.ok) console.error(`ingest failed: ${res.status} ${await res.text()}`);
-    else if (tick % 5 === 0) console.log(`[${deviceId}] posted tick ${tick}`);
+    else if (tick % 5 === 0) {
+      let rec = '';
+      try { rec = (await res.json()).recording ? ' [recording]' : ''; } catch (_) {}
+      console.log(`[${deviceId}] posted tick ${tick}${rec}`);
+    }
   } catch (e) {
     console.error('post error:', e.message);
   }

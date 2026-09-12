@@ -51,6 +51,7 @@ export default function DeviceCard({ device, onRenamed }) {
         ) : (
           <div className="device-card-title">
             <strong>{device.display_name}</strong>
+            {device.recording && <span className="badge rec">REC</span>}
             <button className="link-btn" onClick={() => setEditing(true)}>rename</button>
           </div>
         )}
@@ -61,11 +62,10 @@ export default function DeviceCard({ device, onRenamed }) {
         {err && <div className="error">{err}</div>}
       </div>
       <Link
-        className={`btn ${device.active ? '' : 'disabled'}`}
-        to={device.active ? `/devices/${encodeURIComponent(device.device_id)}` : '#'}
-        onClick={(e) => { if (!device.active) e.preventDefault(); }}
+        className="btn"
+        to={`/devices/${encodeURIComponent(device.device_id)}`}
       >
-        Log Data
+        Open
       </Link>
     </div>
   );

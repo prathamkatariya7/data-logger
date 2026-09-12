@@ -7,18 +7,18 @@ function tsLabel(r) {
 }
 
 // Live readings table (newest first). Rows are prepended as WS updates arrive.
-export default function ReadingsTable({ rows }) {
+export default function ReadingsTable({ rows, unit = '°C' }) {
   return (
     <section className="panel">
-      <h3>Live readings</h3>
+      <div className="panel-head"><h3>Live readings</h3></div>
       <div className="table-wrap">
         <table className="readings-table">
           <thead>
             <tr>
               <th>Time</th>
               <th>Raw</th>
-              <th>Calculated °C</th>
-              <th>Master °C</th>
+              <th>Calculated ({unit})</th>
+              <th>Master ({unit})</th>
               <th>Error factor</th>
             </tr>
           </thead>
