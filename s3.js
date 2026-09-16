@@ -97,6 +97,7 @@ async function listArchives(prefix) {
 }
 
 module.exports = {
+  getClient,
   isS3Configured,
   uploadArchive,
   getPresignedDownloadUrl,
