@@ -116,3 +116,6 @@ CREATE INDEX IF NOT EXISTS idx_readings_lookup
 
 CREATE INDEX IF NOT EXISTS idx_readings_device_ts
   ON readings (device_id, ts);
+
+CREATE INDEX IF NOT EXISTS idx_readings_ts
+  ON readings (ts);

@@ -55,8 +55,9 @@ function runMigrations() {
   // readings — session tagging
   addColumn('readings', 'session_id', 'session_id INTEGER');
 
-  // Index on the (possibly just-added) session_id column.
+  // Index on the (possibly just-added) session_id column and ts pruning index.
   db.exec('CREATE INDEX IF NOT EXISTS idx_readings_session ON readings (session_id)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_readings_ts ON readings (ts)');
 }
 runMigrations();
 

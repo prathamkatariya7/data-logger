@@ -119,7 +119,22 @@ Open **PowerShell** or Command Prompt on your PC and run:
 
 ---
 
-## 🛠️ Step 6: Install Node.js, Git, PM2 & Tools on Server
+## 🧠 Step 6.1: Create 2 GB SWAP File (Crucial for AWS t2.micro Free Tier)
+
+`t2.micro` instances only have 1 GB of RAM. Without SWAP memory, Node.js or Vite frontend builds can run out of memory (OOM), causing Nginx to throw **504 Gateway Time-out** errors.
+
+Run these commands in your SSH terminal:
+```bash
+sudo fallocate -l 2G /swapfile
+sudo chmod 600 /swapfile
+sudo mkswap /swapfile
+sudo swapon /swapfile
+echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+```
+
+---
+
+## 🛠️ Step 6.2: Install Node.js, Git, PM2 & Tools on Server
 
 Inside your AWS SSH terminal, copy and run these commands one by one:
 
@@ -204,6 +219,11 @@ Nginx receives HTTP requests on standard port 80 and passes them to Node.js on p
    ```
 2. Paste the following configuration:
    ```nginx
+   map $http_upgrade $connection_upgrade {
+       default upgrade;
+       ''      close;
+   }
+
    server {
        listen 80 default_server;
        listen [::]:80 default_server;
@@ -216,12 +236,15 @@ Nginx receives HTTP requests on standard port 80 and passes them to Node.js on p
            proxy_pass http://127.0.0.1:8080;
            proxy_http_version 1.1;
            proxy_set_header Upgrade $http_upgrade;
-           proxy_set_header Connection "upgrade";
+           proxy_set_header Connection $connection_upgrade;
            proxy_set_header Host $host;
            proxy_cache_bypass $http_upgrade;
            proxy_set_header X-Real-IP $remote_addr;
            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
            proxy_set_header X-Forwarded-Proto $scheme;
+
+           proxy_read_timeout 86400s;
+           proxy_send_timeout 86400s;
        }
    }
    ```
