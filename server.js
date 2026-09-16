@@ -73,20 +73,13 @@ if (fs.existsSync(distDir)) {
 const server = http.createServer(app);
 realtime.init(server);
 
-// --- Retention prune ---
-if (config.RETENTION_DAYS > 0) {
-  const prune = () => {
-    const cutoff = new Date(Date.now() - config.RETENTION_DAYS * 86400000).toISOString();
-    try {
-      const info = stmts.pruneOld.run(cutoff);
-      if (info.changes > 0) console.log(`[retention] pruned ${info.changes} old readings`);
-    } catch (e) {
-      console.error('[retention] prune failed', e.message);
-    }
-  };
-  prune();
-  const t = setInterval(prune, config.RETENTION_SWEEP_MS);
-  t.unref?.();
+// --- Automatic 24-Hour S3 Archival Sweep ---
+const { runAutoArchiveSweep } = require('./archive-service');
+if (config.S3_AUTO_ARCHIVE) {
+  // Run 1 minute after server start, then repeat every 24 hours (86,400,000 ms).
+  setTimeout(() => runAutoArchiveSweep(1), 60000);
+  const autoArchiveTimer = setInterval(() => runAutoArchiveSweep(1), 86400000);
+  autoArchiveTimer.unref?.();
 }
 
 server.listen(config.PORT, config.HOST, () => {
