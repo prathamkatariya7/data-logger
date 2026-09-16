@@ -232,8 +232,80 @@ const stmts = {
     `DELETE FROM readings WHERE device_id = ? AND channel_type = ? AND channel_num = ?`
   ),
   clearDeviceLog: db.prepare('DELETE FROM readings WHERE device_id = ?'),
+  clearAllReadings: db.prepare('DELETE FROM readings'),
   pruneOld: db.prepare('DELETE FROM readings WHERE ts < ?'),
+
+  // --- s3_archives ---
+  insertArchive: db.prepare(
+    `INSERT INTO s3_archives
+       (device_id, session_id, archive_key, filename, file_size_bytes, row_count, start_ts, end_ts, created_at)
+     VALUES
+       (@device_id, @session_id, @archive_key, @filename, @file_size_bytes, @row_count, @start_ts, @end_ts, @created_at)`
+  ),
+  listArchivesForDevice: db.prepare(
+    'SELECT * FROM s3_archives WHERE device_id = ? ORDER BY created_at DESC'
+  ),
+  listAllArchives: db.prepare('SELECT * FROM s3_archives ORDER BY created_at DESC'),
+  getArchiveById: db.prepare('SELECT * FROM s3_archives WHERE id = ?'),
+  getArchiveByKey: db.prepare('SELECT * FROM s3_archives WHERE archive_key = ?'),
+  deleteArchiveById: db.prepare('DELETE FROM s3_archives WHERE id = ?'),
+  deleteArchivesForDevice: db.prepare('DELETE FROM s3_archives WHERE device_id = ?'),
+  deleteAllArchives: db.prepare('DELETE FROM s3_archives'),
 };
+
+// ---------------------------------------------------------------------------
+// Dynamic Filtered Deletion Helper
+// ---------------------------------------------------------------------------
+function buildReadingFilterWhere(filters = {}) {
+  const clauses = [];
+  const params = [];
+
+  if (filters.device_id && filters.device_id !== 'all') {
+    clauses.push('device_id = ?');
+    params.push(filters.device_id);
+  }
+  if (filters.channel_type && filters.channel_type !== 'all') {
+    clauses.push('channel_type = ?');
+    params.push(filters.channel_type);
+  }
+  if (filters.channel_num !== undefined && filters.channel_num !== null && filters.channel_num !== 'all') {
+    clauses.push('channel_num = ?');
+    params.push(Number(filters.channel_num));
+  }
+  if (filters.start_date) {
+    clauses.push('ts >= ?');
+    params.push(new Date(filters.start_date).toISOString());
+  }
+  if (filters.end_date) {
+    clauses.push('ts <= ?');
+    params.push(new Date(filters.end_date).toISOString());
+  }
+
+  const whereSql = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
+  return { whereSql, params };
+}
+
+function countFilteredReadings(filters = {}) {
+  const { whereSql, params } = buildReadingFilterWhere(filters);
+  const row = db.prepare(`SELECT COUNT(*) AS n FROM readings ${whereSql}`).get(...params);
+  return row ? row.n : 0;
+}
+
+function deleteFilteredReadings(filters = {}) {
+  const { whereSql, params } = buildReadingFilterWhere(filters);
+  const info = db.prepare(`DELETE FROM readings ${whereSql}`).run(...params);
+  return info.changes;
+}
+
+function vacuumDatabase() {
+  try {
+    db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
+    db.exec('VACUUM');
+  } catch (e) {
+    console.warn('[db] vacuum warning:', e.message);
+  }
+}
+
 
 // ---------------------------------------------------------------------------
 // Higher-level helpers
@@ -307,4 +379,7 @@ module.exports = {
   defaultChannelName,
   upsertDevice,
   getOrCreateChannelConfig,
+  countFilteredReadings,
+  deleteFilteredReadings,
+  vacuumDatabase,
 };

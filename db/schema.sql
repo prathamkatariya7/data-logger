@@ -119,3 +119,19 @@ CREATE INDEX IF NOT EXISTS idx_readings_device_ts
 
 CREATE INDEX IF NOT EXISTS idx_readings_ts
   ON readings (ts);
+
+-- S3 Archives tracking table: stores metadata for exported CSV/GZ historical files
+CREATE TABLE IF NOT EXISTS s3_archives (
+  id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+  device_id           TEXT NOT NULL,
+  session_id          INTEGER,
+  archive_key         TEXT NOT NULL UNIQUE,
+  filename            TEXT NOT NULL,
+  file_size_bytes     INTEGER NOT NULL DEFAULT 0,
+  row_count           INTEGER NOT NULL DEFAULT 0,
+  start_ts            TEXT,
+  end_ts              TEXT,
+  created_at          TEXT NOT NULL,
+  FOREIGN KEY (device_id) REFERENCES devices(device_id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_archives_device ON s3_archives (device_id, created_at);

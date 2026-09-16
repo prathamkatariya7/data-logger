@@ -10,8 +10,9 @@ import DiagnosticsPanel from '../components/DiagnosticsPanel.jsx';
 import SessionsPanel from '../components/SessionsPanel.jsx';
 import ChartPanel from '../components/ChartPanel.jsx';
 import ExportPanel from '../components/ExportPanel.jsx';
+import ArchivesPanel from '../components/ArchivesPanel.jsx';
 
-const TABS = ['Overview', 'Charts', 'Sessions', 'Alarms', 'Diagnostics', 'Export'];
+const TABS = ['Overview', 'Charts', 'Sessions', 'Alarms', 'Diagnostics', 'Export', 'Archives'];
 const CHART_COLORS = ['#4a9eff', '#34d399', '#f59e0b', '#a78bfa', '#f472b6', '#22d3ee', '#facc15', '#fb7185', '#4ade80', '#60a5fa', '#f97316', '#e879f9'];
 const MAX_POINTS = 300;
 
@@ -138,6 +139,7 @@ export default function DeviceChannelGrid() {
       {tab === 'Alarms' && <AlarmsPanel deviceId={id} />}
       {tab === 'Diagnostics' && <DiagnosticsPanel snapshot={snap} />}
       {tab === 'Export' && <ExportPanel deviceId={id} kind="device" />}
+      {tab === 'Archives' && <ArchivesPanel deviceId={id} />}
     </div>
   );
 }

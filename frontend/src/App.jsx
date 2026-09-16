@@ -6,6 +6,7 @@ import ChannelDetail from './pages/ChannelDetail.jsx';
 import Login from './pages/Login.jsx';
 import Profile from './pages/Profile.jsx';
 import Users from './pages/Users.jsx';
+import AdminDataManagement from './pages/AdminDataManagement.jsx';
 import { useTheme } from './lib/theme.js';
 import { useAuth } from './lib/auth.jsx';
 import { socket } from './lib/socket.js';
@@ -49,9 +50,14 @@ function UserMenu({ user, logout }) {
             Profile
           </Link>
           {user.role === 'admin' && (
-            <Link to="/users" className="user-menu-item" onClick={() => setOpen(false)}>
-              Users
-            </Link>
+            <>
+              <Link to="/users" className="user-menu-item" onClick={() => setOpen(false)}>
+                Users
+              </Link>
+              <Link to="/admin/data" className="user-menu-item" onClick={() => setOpen(false)}>
+                Data Management
+              </Link>
+            </>
           )}
           <div className="user-menu-divider" />
           <button className="user-menu-item danger-text" onClick={() => { setOpen(false); logout(); }}>
@@ -100,6 +106,7 @@ export default function App() {
           <Route path="/devices/:id/:type/:num" element={<ChannelDetail />} />
           <Route path="/profile" element={<Profile />} />
           <Route path="/users" element={<Users />} />
+          <Route path="/admin/data" element={<AdminDataManagement />} />
           <Route path="*" element={<p>Not found. <Link to="/">Go home</Link></p>} />
         </Routes>
       </main>

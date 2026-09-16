@@ -17,7 +17,9 @@ const channelsRouter = require('./routes/channels');
 const logsRouter = require('./routes/logs');
 const reportsRouter = require('./routes/reports');
 const usersRouter = require('./routes/users');
-const { router: authRouter, requireAuth } = require('./routes/auth');
+const archivesRouter = require('./routes/archives');
+const adminDataRouter = require('./routes/admin-data');
+const { router: authRouter, requireAuth, requireAdmin } = require('./routes/auth');
 
 const app = express();
 // Behind a cloud load balancer / reverse proxy (Render, Fly, Railway, Nginx).
@@ -37,6 +39,8 @@ app.use('/api/devices', requireAuth, devicesRouter); // list, rename, recording,
 app.use('/api/devices', requireAuth, reportsRouter); // /:id/report
 app.use('/api/devices/:id/channels', requireAuth, channelsRouter); // config, meta, alarm, stats
 app.use('/api/devices/:id/channels', requireAuth, logsRouter); // per-channel csv/json/xlsx
+app.use('/api/devices', requireAuth, archivesRouter); // /:id/archives
+app.use('/api/admin', requireAuth, requireAdmin, adminDataRouter); // /api/admin/data/*
 
 // --- Static frontend (built React app) ---
 const distDir = path.join(__dirname, 'frontend', 'dist');

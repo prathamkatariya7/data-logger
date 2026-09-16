@@ -37,6 +37,11 @@ module.exports = {
   AUTH_TOKEN_TTL: process.env.AUTH_TOKEN_TTL || '7d',
   AUTH_ENABLED: true,
 
+  // --- S3 Archival & Cloud Storage ---
+  S3_BUCKET: process.env.S3_BUCKET || null,
+  AWS_REGION: process.env.AWS_REGION || 'ap-south-1',
+  S3_AUTO_ARCHIVE: process.env.S3_AUTO_ARCHIVE !== 'false',
+
   // Default formula params (from the README constants).
   DEFAULT_PT100_PARAMS: { R0: 100, RA: 4700, RC: 4700, R1: 10000, RF: 100000, VDC: 5.0, ALPHA: 0.39 },
   DEFAULT_TC_PARAMS: { slope: 0.25 },

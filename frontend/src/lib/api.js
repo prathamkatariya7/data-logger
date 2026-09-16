@@ -88,6 +88,24 @@ export const api = {
     req(`/api/users/${id}/reset-password`, { method: 'POST', body: JSON.stringify({ new_password }) }),
   setUserRole: (id, role) =>
     req(`/api/users/${id}/role`, { method: 'PATCH', body: JSON.stringify({ role }) }),
+
+  // --- archives (S3) ---
+  listArchives: (deviceId) => req(`/api/devices/${enc(deviceId)}/archives`),
+  getArchiveDownloadUrl: (deviceId, archiveId) =>
+    req(`/api/devices/${enc(deviceId)}/archives/${archiveId}/download`),
+  exportArchiveNow: (deviceId, keep_days = 7) =>
+    req(`/api/devices/${enc(deviceId)}/archives/export-now`, { method: 'POST', body: JSON.stringify({ keep_days }) }),
+  deleteArchive: (deviceId, archiveId) =>
+    req(`/api/devices/${enc(deviceId)}/archives/${archiveId}`, { method: 'DELETE' }),
+
+  // --- admin data management ---
+  adminDataStats: () => req('/api/admin/data/stats'),
+  adminDataCount: (filters) =>
+    req('/api/admin/data/count', { method: 'POST', body: JSON.stringify(filters) }),
+  adminDataDelete: (payload) =>
+    req('/api/admin/data/delete', { method: 'POST', body: JSON.stringify(payload) }),
+  adminDataVacuum: () =>
+    req('/api/admin/data/vacuum', { method: 'POST' }),
 };
 
 // Build a query string from defined, non-empty params.

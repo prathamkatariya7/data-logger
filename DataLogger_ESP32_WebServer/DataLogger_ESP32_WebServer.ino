@@ -55,13 +55,13 @@ const char *WIFI_PASSWORD = "BSL@tech2024!";
 //   CLOUD (server hosted online):  https://<your-app>.onrender.com/api/ingest
 // The sketch auto-detects http vs https from the URL below. When you deploy to
 // the cloud (see DEPLOY.md), paste your public HTTPS URL here and re-flash.
-const char *SERVER_URL = "http://172.16.50.173:8080/api/ingest";
+const char *SERVER_URL = "http://15.252.192.230/api/ingest";
 // Example after deploying:
 // const char *SERVER_URL = "https://data-logger-xxxx.onrender.com/api/ingest";
 
 // Optional shared secret so random devices on the LAN can't post fake data.
 // Must match API_KEY on the server - leave both blank to disable.
-const char *DEVICE_API_KEY = "";
+const char *DEVICE_API_KEY = "esp32-secret-key-123";
 
 const char *DEVICE_ID = "datalogger-01";
 
