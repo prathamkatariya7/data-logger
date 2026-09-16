@@ -1,5 +1,7 @@
 'use strict';
 
+require('dotenv').config();
+
 // Central configuration. Everything overridable via environment variables so
 // the same build runs on any laptop / LAN without code edits.
 const path = require('path');
