@@ -57,6 +57,10 @@ async function performDeviceArchival(deviceId, cutoffDays = 1) {
     partSize: 5 * 1024 * 1024, // 5MB S3 part size
   });
 
+  s3Upload.on('httpUploadProgress', (p) => {
+    console.log(`[archive-s3-upload] ${p.Key}: uploaded ${p.loaded} bytes (part ${p.part})`);
+  });
+
   // Write CSV Header
   gzip.write('id,device_id,channel_type,channel_num,ts,rtc_time,rtc_date,raw_value,hw_available,fault,calculated_temp_c,master_temp_c,error_factor_at_time,session_id\n');
 
