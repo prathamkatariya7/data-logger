@@ -1,5 +1,5 @@
 'use strict';
-const { runAutoArchiveSweep } = require('./archive-service');
+const { runAutoArchiveSweep } = require('../archive-service');
 
 async function main() {
   console.log('[manual-sweep] Triggering S3 archival sweep now...');
