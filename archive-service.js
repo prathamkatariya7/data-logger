@@ -98,6 +98,11 @@ async function performDeviceArchival(deviceId, cutoffDays = 1) {
     processedRows += rows.length;
     console.log(`[archive-service] Processed & purged ${processedRows.toLocaleString()} / ${totalRows.toLocaleString()} rows...`);
 
+    // Force V8 garbage collection every 100,000 rows to keep heap footprint minimal (< 80MB)
+    if (global.gc && processedRows % 100000 === 0) {
+      try { global.gc(); } catch (_) {}
+    }
+
     // Yield to event loop (100ms delay to keep disk I/O and CPU low on t2.micro)
     await new Promise((resolve) => setTimeout(resolve, 100));
 
