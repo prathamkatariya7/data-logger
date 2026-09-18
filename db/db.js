@@ -240,7 +240,7 @@ const stmts = {
 
   // --- s3_archives ---
   insertArchive: db.prepare(
-    `INSERT INTO s3_archives
+    `INSERT OR REPLACE INTO s3_archives
        (device_id, session_id, archive_key, filename, file_size_bytes, row_count, start_ts, end_ts, created_at)
      VALUES
        (@device_id, @session_id, @archive_key, @filename, @file_size_bytes, @row_count, @start_ts, @end_ts, @created_at)`
