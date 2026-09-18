@@ -68,17 +68,11 @@ async function performDeviceArchival(deviceId, cutoffDays = 1) {
   const fetchStmt = db.prepare(
     'SELECT * FROM readings WHERE device_id = ? AND ts < ? ORDER BY id ASC LIMIT ?'
   );
-  const deleteStmt = db.prepare(
-    'DELETE FROM readings WHERE device_id = ? AND id >= ? AND id <= ?'
-  );
 
   // Process in 50,000 row chunks to maintain strict low-memory footprint
   while (true) {
     const rows = fetchStmt.all(deviceId, cutoff, BATCH_SIZE);
     if (rows.length === 0) break;
-
-    const minId = rows[0].id;
-    const maxId = rows[rows.length - 1].id;
 
     for (const row of rows) {
       const line = [
@@ -94,9 +88,14 @@ async function performDeviceArchival(deviceId, cutoffDays = 1) {
       }
     }
 
+    // Delete exact batched row IDs from SQLite in chunks of 5,000
+    for (let i = 0; i < rows.length; i += 5000) {
+      const chunkIds = rows.slice(i, i + 5000).map((r) => r.id);
+      const placeholders = chunkIds.map(() => '?').join(',');
+      db.prepare(`DELETE FROM readings WHERE id IN (${placeholders})`).run(...chunkIds);
+    }
+
     processedRows += rows.length;
-    // Fast primary key range delete from SQLite (2ms per batch)
-    deleteStmt.run(deviceId, minId, maxId);
     console.log(`[archive-service] Processed & purged ${processedRows.toLocaleString()} / ${totalRows.toLocaleString()} rows...`);
 
     // Yield to event loop so HTTP server and Socket.IO remain responsive
