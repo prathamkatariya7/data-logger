@@ -84,7 +84,7 @@ async function performDeviceArchival(deviceId, cutoffDays = 1) {
       
       const canContinue = gzip.write(line);
       if (!canContinue) {
-        await new Promise((resolve) => gzip.once('drain', resolve));
+        await new Promise((resolve) => setImmediate(resolve));
       }
     }
 
