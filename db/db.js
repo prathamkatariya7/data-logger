@@ -55,9 +55,12 @@ function runMigrations() {
   // readings — session tagging
   addColumn('readings', 'session_id', 'session_id INTEGER');
 
-  // Index on the (possibly just-added) session_id column and ts pruning index.
+  // Index on the (possibly just-added) session_id column and ts/device lookup indices.
   db.exec('CREATE INDEX IF NOT EXISTS idx_readings_session ON readings (session_id)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_readings_ts ON readings (ts)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_readings_device ON readings (device_id)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_readings_device_ts ON readings (device_id, ts)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_readings_lookup ON readings (device_id, channel_type, channel_num, ts)');
 }
 runMigrations();
 
