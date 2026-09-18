@@ -1,18 +1,29 @@
 'use strict';
 
-// Master-calibration logic (architecture doc §6), written as pure functions so
-// the tricky "clear doesn't touch calculated" / "formula edit shifts master"
-// behaviors are testable in isolation.
+/**
+ * @module calibration
+ * @description Master-calibration offset evaluation functions.
+ * Computes reference offset error factors and applies offset calibration to raw calculated temperature values.
+ */
 
-// Compute the error factor at calibration time: reference minus current calculated.
-//   error_factor = M_ref - C_now
+/**
+ * Computes calibration error factor offset: reference minus current calculated value.
+ * 
+ * @param {number} referenceC - Reference standard temperature in °C
+ * @param {number} calculatedNowC - Uncalibrated calculated temperature in °C
+ * @returns {number} Computed offset error factor
+ */
 function computeErrorFactor(referenceC, calculatedNowC) {
   return referenceC - calculatedNowC;
 }
 
-// Given a fresh calculated value and the channel's current master state, derive
-// the live master value. master = calculated + error_factor, only when enabled.
-// Returns { masterTempC, errorFactorAtTime } — both null when master disabled.
+/**
+ * Applies master-calibration error factor to a calculated temperature reading.
+ * 
+ * @param {number|null} calculatedTempC - Uncalibrated calculated temperature
+ * @param {Object} channelConfig - Channel configuration object containing master calibration flags
+ * @returns {{masterTempC: number|null, errorFactorAtTime: number|null}} Master calibrated output and offset snapshot
+ */
 function applyCalibration(calculatedTempC, channelConfig) {
   const enabled = !!channelConfig.master_enabled;
   const ef = channelConfig.master_error_factor;

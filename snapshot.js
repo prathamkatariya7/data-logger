@@ -1,18 +1,37 @@
 'use strict';
 
+/**
+ * @module snapshot
+ * @description Device telemetry snapshot builder. Merges live memory cache values with stored database readings,
+ * channel metadata, alarms, recording state, and hardware diagnostics into unified JSON payloads for frontend consumption.
+ */
+
 const config = require('./config');
 const { stmts, defaultChannelName } = require('./db/db');
 const live = require('./live');
 const alarms = require('./alarms');
 const { getRecordingState } = require('./recording');
 
+/**
+ * Checks whether an ISO timestamp is within the active stale threshold window.
+ * 
+ * @param {string} lastSeenIso - ISO date-time string
+ * @returns {boolean} True if active
+ */
 function isActive(lastSeenIso) {
   return Date.now() - new Date(lastSeenIso).getTime() < config.STALE_MS;
 }
 
-// Build one channel entry. Prefer the in-memory live value (updated on every
-// ingest, even while not recording); fall back to the latest DB row so the UI
-// still shows something right after a server restart.
+/**
+ * Constructs channel telemetry entry object, blending live memory cache with fallback DB readings.
+ * 
+ * @param {string} type - Channel type ('pt100' or 'tc')
+ * @param {number} num - Channel index
+ * @param {string} deviceId - Target device identifier
+ * @param {Object|null} dbReading - Database reading record
+ * @param {Object|null} cfg - Channel configuration record
+ * @returns {Object} Complete channel state entry
+ */
 function channelEntry(type, num, deviceId, dbReading, cfg) {
   const liveVal = live.getChannel(deviceId, type, num);
   const src = liveVal || (dbReading ? dbReadingToEntry(type, num, dbReading, cfg) : null);
@@ -45,6 +64,15 @@ function channelEntry(type, num, deviceId, dbReading, cfg) {
   };
 }
 
+/**
+ * Converts raw database reading row to internal channel entry format.
+ * 
+ * @param {string} type - Channel type
+ * @param {number} num - Channel index
+ * @param {Object} r - Database reading record
+ * @param {Object|null} cfg - Channel configuration record
+ * @returns {Object} Internal entry object
+ */
 function dbReadingToEntry(type, num, r, cfg) {
   return {
     channel_type: type,
@@ -61,7 +89,12 @@ function dbReadingToEntry(type, num, r, cfg) {
   };
 }
 
-// Full converted snapshot for a device: metadata + every channel's latest state.
+/**
+ * Assembles full telemetry snapshot for a device including PT100 and Thermocouple channels.
+ * 
+ * @param {string} deviceId - Target device identifier
+ * @returns {Object|null} Complete device snapshot object or null if device not found
+ */
 function buildDeviceSnapshot(deviceId) {
   const device = stmts.getDevice.get(deviceId);
   if (!device) return null;

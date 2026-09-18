@@ -1,5 +1,11 @@
 'use strict';
 
+/**
+ * @module routes/devices
+ * @description REST API routes for managing devices, session recording controls, diagnostics,
+ * alarms, and device-wide multi-channel exports (CSV, JSON, XLSX).
+ */
+
 const express = require('express');
 const config = require('../config');
 const { stmts, db } = require('../db/db');
@@ -10,7 +16,10 @@ const { csvCell, fmt, rowTimestamp, tsRange } = require('../csvutil');
 
 const router = express.Router();
 
-// GET /api/devices — dashboard list (R1).
+/**
+ * GET /api/devices
+ * Returns list of all registered devices with connectivity and recording status.
+ */
 router.get('/', (req, res) => {
   const devices = stmts.listDevices.all().map((d) => ({
     device_id: d.device_id,
@@ -24,7 +33,10 @@ router.get('/', (req, res) => {
   res.json(devices);
 });
 
-// PATCH /api/devices/:id — rename (R1).
+/**
+ * PATCH /api/devices/:id
+ * Renames target device display name.
+ */
 router.patch('/:id', (req, res) => {
   const device = stmts.getDevice.get(req.params.id);
   if (!device) return res.status(404).json({ error: 'device not found' });
@@ -35,7 +47,10 @@ router.patch('/:id', (req, res) => {
   res.json({ device_id: req.params.id, display_name: name });
 });
 
-// PATCH /api/devices/:id/settings — device-level settings (sample interval).
+/**
+ * PATCH /api/devices/:id/settings
+ * Updates device settings (e.g. sample recording interval).
+ */
 router.patch('/:id/settings', (req, res) => {
   const device = stmts.getDevice.get(req.params.id);
   if (!device) return res.status(404).json({ error: 'device not found' });
@@ -48,16 +63,20 @@ router.patch('/:id/settings', (req, res) => {
   res.json({ device_id: d.device_id, sample_interval_ms: d.sample_interval_ms });
 });
 
-// GET /api/devices/:id/data — latest converted snapshot (R2, R3 first paint).
+/**
+ * GET /api/devices/:id/data
+ * Fetches latest converted telemetry snapshot for a device.
+ */
 router.get('/:id/data', (req, res) => {
   const snapshot = buildDeviceSnapshot(req.params.id);
   if (!snapshot) return res.status(404).json({ error: 'device not found' });
   res.json(snapshot);
 });
 
-// --- Recording control ---------------------------------------------------
-
-// POST /api/devices/:id/recording/start — open a session, start recording.
+/**
+ * POST /api/devices/:id/recording/start
+ * Starts a new recording session for the specified device.
+ */
 router.post('/:id/recording/start', (req, res) => {
   const device = stmts.getDevice.get(req.params.id);
   if (!device) return res.status(404).json({ error: 'device not found' });
@@ -74,7 +93,10 @@ router.post('/:id/recording/start', (req, res) => {
   res.json({ recording: true, session, sample_interval_ms: state.sample_interval_ms });
 });
 
-// POST /api/devices/:id/recording/stop — close the active session.
+/**
+ * POST /api/devices/:id/recording/stop
+ * Stops the active recording session for the specified device.
+ */
 router.post('/:id/recording/stop', (req, res) => {
   const device = stmts.getDevice.get(req.params.id);
   if (!device) return res.status(404).json({ error: 'device not found' });
@@ -84,14 +106,20 @@ router.post('/:id/recording/stop', (req, res) => {
   res.json({ recording: false, session });
 });
 
-// GET /api/devices/:id/recording — current recording state.
+/**
+ * GET /api/devices/:id/recording
+ * Returns current recording state for the specified device.
+ */
 router.get('/:id/recording', (req, res) => {
   const device = stmts.getDevice.get(req.params.id);
   if (!device) return res.status(404).json({ error: 'device not found' });
   res.json(getRecordingState(device));
 });
 
-// GET /api/devices/:id/sessions?limit=N — recent sessions with reading counts.
+/**
+ * GET /api/devices/:id/sessions
+ * Returns history of recording sessions for the specified device.
+ */
 router.get('/:id/sessions', (req, res) => {
   if (!stmts.getDevice.get(req.params.id)) return res.status(404).json({ error: 'device not found' });
   const limit = Math.min(parseInt(req.query.limit, 10) || 50, 500);
@@ -102,7 +130,10 @@ router.get('/:id/sessions', (req, res) => {
   res.json(rows);
 });
 
-// GET /api/devices/:id/diagnostics — device health snapshot.
+/**
+ * GET /api/devices/:id/diagnostics
+ * Returns system diagnostics snapshot for the device.
+ */
 router.get('/:id/diagnostics', (req, res) => {
   const d = stmts.getDevice.get(req.params.id);
   if (!d) return res.status(404).json({ error: 'device not found' });
@@ -119,23 +150,30 @@ router.get('/:id/diagnostics', (req, res) => {
   });
 });
 
-// GET /api/devices/:id/alarms?limit=N — recent alarm events.
+/**
+ * GET /api/devices/:id/alarms
+ * Returns recent alarm event log entries for the device.
+ */
 router.get('/:id/alarms', (req, res) => {
   if (!stmts.getDevice.get(req.params.id)) return res.status(404).json({ error: 'device not found' });
   const limit = Math.min(parseInt(req.query.limit, 10) || 100, 1000);
   res.json(stmts.recentAlarmEvents.all(req.params.id, limit));
 });
 
-// POST /api/devices/:id/alarms/clear — wipe the alarm event log.
+/**
+ * POST /api/devices/:id/alarms/clear
+ * Clears alarm events history for the specified device.
+ */
 router.post('/:id/alarms/clear', (req, res) => {
   if (!stmts.getDevice.get(req.params.id)) return res.status(404).json({ error: 'device not found' });
   const info = stmts.clearAlarmEvents.run(req.params.id);
   res.json({ deleted: info.changes });
 });
 
-// GET /api/devices/:id/download/all.csv?with_master=..&from=..&to=..&session_id=..
-// WIDE format: one row per timestamp, each ENABLED channel as its own column,
-// headers driven by the user's channel display names + units.
+/**
+ * GET /api/devices/:id/download/all.csv
+ * Wide-format multi-channel CSV data export.
+ */
 router.get('/:id/download/all.csv', (req, res) => {
   if (!stmts.getDevice.get(req.params.id)) return res.status(404).send('device not found');
 
@@ -191,7 +229,10 @@ router.get('/:id/download/all.csv', (req, res) => {
   res.end();
 });
 
-// GET /api/devices/:id/download/all.json — whole-device wide JSON export.
+/**
+ * GET /api/devices/:id/download/all.json
+ * Wide-format multi-channel JSON data export.
+ */
 router.get('/:id/download/all.json', (req, res) => {
   if (!stmts.getDevice.get(req.params.id)) return res.status(404).json({ error: 'device not found' });
   const range = tsRange(req.query.from, req.query.to);
@@ -221,7 +262,10 @@ router.get('/:id/download/all.json', (req, res) => {
   res.json({ device_id: req.params.id, count: out.length, rows: out });
 });
 
-// GET /api/devices/:id/download/all.xlsx — whole-device wide Excel export.
+/**
+ * GET /api/devices/:id/download/all.xlsx
+ * Wide-format multi-channel Excel spreadsheet data export.
+ */
 router.get('/:id/download/all.xlsx', async (req, res) => {
   if (!stmts.getDevice.get(req.params.id)) return res.status(404).send('device not found');
   const withMaster = req.query.with_master === 'true';
@@ -276,7 +320,10 @@ router.get('/:id/download/all.xlsx', async (req, res) => {
   res.end();
 });
 
-// POST /api/devices/:id/clear-log — delete all readings for the device.
+/**
+ * POST /api/devices/:id/clear-log
+ * Deletes all database reading records for the specified device.
+ */
 router.post('/:id/clear-log', (req, res) => {
   if (!stmts.getDevice.get(req.params.id)) return res.status(404).json({ error: 'device not found' });
   const info = stmts.clearDeviceLog.run(req.params.id);
@@ -284,7 +331,12 @@ router.post('/:id/clear-log', (req, res) => {
   res.json({ deleted: info.changes });
 });
 
-// Build ordered, enabled channel column defs with user display names.
+/**
+ * Builds ordered list of enabled channel column definitions for device export formats.
+ * 
+ * @param {string} deviceId - Target device identifier
+ * @returns {Array<{key: string, label: string}>} Column definitions
+ */
 function buildDeviceColumns(deviceId) {
   const cols = [];
   for (let n = 1; n <= config.PT100_CHANNELS; n++) {

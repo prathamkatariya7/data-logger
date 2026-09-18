@@ -1,8 +1,14 @@
 'use strict';
 
+/**
+ * @module routes/channels
+ * @description REST API routes for channel-level configuration, formula tuning, master calibration,
+ * threshold alarm boundaries, reading history, and dynamic window statistics.
+ */
+
 const express = require('express');
 const config = require('../config');
-const { stmts, getOrCreateChannelConfig, nowIso, db } = require('../db/db');
+const { stmts, getOrCreateChannelConfig, nowIso } = require('../db/db');
 const { calculateTemp } = require('../temperature');
 const { computeErrorFactor } = require('../calibration');
 const { buildDeviceSnapshot } = require('../snapshot');
@@ -12,7 +18,13 @@ const router = express.Router({ mergeParams: true });
 
 const PT100_KEYS = ['R0', 'RA', 'RC', 'R1', 'RF', 'VDC', 'ALPHA'];
 
-// Validate :type and :num, return { type, num } or send 400.
+/**
+ * Validates channel type and channel number path parameters.
+ * 
+ * @param {Object} req - Express request
+ * @param {Object} res - Express response
+ * @returns {{type: string, num: number}|null} Parsed channel identifiers or null
+ */
 function parseChannel(req, res) {
   const type = req.params.type;
   const num = parseInt(req.params.num, 10);
@@ -28,6 +40,13 @@ function parseChannel(req, res) {
   return { type, num };
 }
 
+/**
+ * Validates target device existence.
+ * 
+ * @param {Object} req - Express request
+ * @param {Object} res - Express response
+ * @returns {Object|null} Device record or null
+ */
 function ensureDevice(req, res) {
   const device = stmts.getDevice.get(req.params.id);
   if (!device) {
@@ -37,7 +56,10 @@ function ensureDevice(req, res) {
   return device;
 }
 
-// GET /api/devices/:id/channels/:type/:num — config + master state + latest reading (R4/R5 initial load).
+/**
+ * GET /api/devices/:id/channels/:type/:num
+ * Returns channel configuration, master calibration status, alarm bounds, and latest reading.
+ */
 router.get('/:type/:num', (req, res) => {
   if (!ensureDevice(req, res)) return;
   const ch = parseChannel(req, res);
@@ -78,7 +100,10 @@ router.get('/:type/:num', (req, res) => {
   });
 });
 
-// PUT .../formula — update formula params (R4).
+/**
+ * PUT /api/devices/:id/channels/:type/:num/formula
+ * Updates channel formula calculation parameters.
+ */
 router.put('/:type/:num/formula', (req, res) => {
   if (!ensureDevice(req, res)) return;
   const ch = parseChannel(req, res);
@@ -114,14 +139,14 @@ router.put('/:type/:num/formula', (req, res) => {
     formula_params: JSON.stringify(next),
   });
 
-  // Note: error_factor is intentionally NOT recomputed here (§6). Master stays
-  // anchored as calculated + fixed offset; recalibration is explicit.
   realtime.broadcastSnapshot(req.params.id, buildDeviceSnapshot(req.params.id));
   res.json({ formula_params: next, master_recalibration_recommended: !!cfg.master_enabled });
 });
 
-// PUT .../master — set master calibration (R5).
-// Body: { reference_c }. Server computes error_factor from the latest calculated value.
+/**
+ * PUT /api/devices/:id/channels/:type/:num/master
+ * Sets master offset calibration reference temperature.
+ */
 router.put('/:type/:num/master', (req, res) => {
   if (!ensureDevice(req, res)) return;
   const ch = parseChannel(req, res);
@@ -135,7 +160,6 @@ router.put('/:type/:num/master', (req, res) => {
   const cfg = getOrCreateChannelConfig(req.params.id, ch.type, ch.num);
   const latest = stmts.latestReading.get(req.params.id, ch.type, ch.num);
 
-  // Prefer the latest stored calculated value; recompute from raw as fallback.
   let calculatedNow = latest ? latest.calculated_temp_c : null;
   if (calculatedNow == null && latest && latest.raw_value != null) {
     calculatedNow = calculateTemp(ch.type, latest.raw_value, JSON.parse(cfg.formula_params));
@@ -165,7 +189,10 @@ router.put('/:type/:num/master', (req, res) => {
   });
 });
 
-// DELETE .../master — clear master calibration (R6).
+/**
+ * DELETE /api/devices/:id/channels/:type/:num/master
+ * Clears master offset calibration for specified channel.
+ */
 router.delete('/:type/:num/master', (req, res) => {
   if (!ensureDevice(req, res)) return;
   const ch = parseChannel(req, res);
@@ -181,7 +208,10 @@ router.delete('/:type/:num/master', (req, res) => {
   res.json({ enabled: false });
 });
 
-// GET .../readings?limit=N — recent readings for the live table (newest first).
+/**
+ * GET /api/devices/:id/channels/:type/:num/readings
+ * Fetches recent readings array for channel live data table.
+ */
 router.get('/:type/:num/readings', (req, res) => {
   if (!ensureDevice(req, res)) return;
   const ch = parseChannel(req, res);
@@ -201,7 +231,10 @@ router.get('/:type/:num/readings', (req, res) => {
   );
 });
 
-// PATCH /:type/:num — channel metadata: display_name, unit, enabled.
+/**
+ * PATCH /api/devices/:id/channels/:type/:num
+ * Updates channel metadata (display name, unit, enabled status).
+ */
 router.patch('/:type/:num', (req, res) => {
   if (!ensureDevice(req, res)) return;
   const ch = parseChannel(req, res);
@@ -233,7 +266,10 @@ router.patch('/:type/:num', (req, res) => {
   res.json({ display_name: name, unit, enabled: enabled !== 0 });
 });
 
-// PUT /:type/:num/alarm — set alarm thresholds. Body: { low, high, enabled }.
+/**
+ * PUT /api/devices/:id/channels/:type/:num/alarm
+ * Updates threshold alarm settings (low, high, enabled).
+ */
 router.put('/:type/:num/alarm', (req, res) => {
   if (!ensureDevice(req, res)) return;
   const ch = parseChannel(req, res);
@@ -263,7 +299,10 @@ router.put('/:type/:num/alarm', (req, res) => {
   res.json({ enabled: !!enabled, low, high });
 });
 
-// DELETE /:type/:num/alarm — disable + clear thresholds.
+/**
+ * DELETE /api/devices/:id/channels/:type/:num/alarm
+ * Disables alarm monitoring and clears threshold bounds.
+ */
 router.delete('/:type/:num/alarm', (req, res) => {
   if (!ensureDevice(req, res)) return;
   const ch = parseChannel(req, res);
@@ -281,7 +320,10 @@ router.delete('/:type/:num/alarm', (req, res) => {
   res.json({ enabled: false });
 });
 
-// GET /:type/:num/stats?window_ms=.. — live statistics over a trailing window.
+/**
+ * GET /api/devices/:id/channels/:type/:num/stats
+ * Calculates windowed statistics (min, max, avg, stddev) over a trailing duration window.
+ */
 router.get('/:type/:num/stats', (req, res) => {
   if (!ensureDevice(req, res)) return;
   const ch = parseChannel(req, res);
@@ -291,7 +333,6 @@ router.get('/:type/:num/stats', (req, res) => {
   const since = new Date(Date.now() - windowMs).toISOString();
 
   const agg = stmts.channelStats.get(req.params.id, ch.type, ch.num, since);
-  // Standard deviation (population) — compute from the values in the window.
   let stddev = null;
   if (agg && agg.n > 0 && agg.avg_c != null) {
     const rows = stmts.channelValuesSince.all(req.params.id, ch.type, ch.num, since);

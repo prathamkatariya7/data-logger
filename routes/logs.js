@@ -1,5 +1,11 @@
 'use strict';
 
+/**
+ * @module routes/logs
+ * @description REST API routes for single-channel telemetry data downloads in CSV, JSON, and XLSX formats,
+ * as well as channel-specific log clearing endpoints.
+ */
+
 const express = require('express');
 const config = require('../config');
 const { stmts, db } = require('../db/db');
@@ -9,6 +15,13 @@ const { csvCell, fmt, rowTimestamp, tsRange } = require('../csvutil');
 
 const router = express.Router({ mergeParams: true });
 
+/**
+ * Validates channel type and channel number path parameters.
+ * 
+ * @param {Object} req - Express request
+ * @param {Object} res - Express response
+ * @returns {{type: string, num: number}|null} Parsed channel parameters or null
+ */
 function parseChannel(req, res) {
   const type = req.params.type;
   const num = parseInt(req.params.num, 10);
@@ -24,6 +37,14 @@ function parseChannel(req, res) {
   return { type, num };
 }
 
+/**
+ * Resolves user display name and unit for channel.
+ * 
+ * @param {string} deviceId - Target device identifier
+ * @param {string} type - Channel type
+ * @param {number} num - Channel index
+ * @returns {{name: string, unit: string}} Channel label metadata
+ */
 function channelLabel(deviceId, type, num) {
   const cfg = stmts.getChannelConfig.get(deviceId, type, num);
   const name = (cfg && cfg.display_name) || (type === 'pt100' ? `PT100_${num}` : `TC_${num}`);
@@ -31,6 +52,12 @@ function channelLabel(deviceId, type, num) {
   return { name, unit };
 }
 
+/**
+ * Queries database reading records for a specific channel using optional date range and session filters.
+ * 
+ * @param {Object} req - Express request
+ * @returns {Array<Object>} Database reading records
+ */
 function fetchChannelRows(req) {
   const range = tsRange(req.query.from, req.query.to);
   const sessionId = req.query.session_id ? parseInt(req.query.session_id, 10) : null;
@@ -44,7 +71,10 @@ function fetchChannelRows(req) {
   return db.prepare(sql).all(...args);
 }
 
-// GET .../log.csv?with_master=..&from=..&to=..&session_id=.. — per-channel CSV.
+/**
+ * GET /api/devices/:id/channels/:type/:num/log.csv
+ * Exports single channel readings as CSV file.
+ */
 router.get('/:type/:num/log.csv', (req, res) => {
   if (!stmts.getDevice.get(req.params.id)) return res.status(404).send('device not found');
   const ch = parseChannel(req, res);
@@ -74,7 +104,10 @@ router.get('/:type/:num/log.csv', (req, res) => {
   res.end();
 });
 
-// GET .../log.json — per-channel JSON export.
+/**
+ * GET /api/devices/:id/channels/:type/:num/log.json
+ * Exports single channel readings as JSON object array.
+ */
 router.get('/:type/:num/log.json', (req, res) => {
   if (!stmts.getDevice.get(req.params.id)) return res.status(404).json({ error: 'device not found' });
   const ch = parseChannel(req, res);
@@ -94,7 +127,10 @@ router.get('/:type/:num/log.json', (req, res) => {
   res.json({ device_id: req.params.id, channel: name, unit, count: rows.length, readings: rows });
 });
 
-// GET .../log.xlsx — per-channel Excel export.
+/**
+ * GET /api/devices/:id/channels/:type/:num/log.xlsx
+ * Exports single channel readings as Excel spreadsheet file.
+ */
 router.get('/:type/:num/log.xlsx', async (req, res) => {
   if (!stmts.getDevice.get(req.params.id)) return res.status(404).send('device not found');
   const ch = parseChannel(req, res);
@@ -133,7 +169,10 @@ router.get('/:type/:num/log.xlsx', async (req, res) => {
   res.end();
 });
 
-// POST .../clear-log — delete a channel's readings.
+/**
+ * POST /api/devices/:id/channels/:type/:num/clear-log
+ * Deletes all reading records for a single specified channel.
+ */
 router.post('/:type/:num/clear-log', (req, res) => {
   if (!stmts.getDevice.get(req.params.id)) return res.status(404).json({ error: 'device not found' });
   const ch = parseChannel(req, res);

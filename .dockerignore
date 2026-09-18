@@ -9,5 +9,9 @@ data
 .gitignore
 *.log
 .env
-Data_Logger
-DataLogger_ESP32_WebServer
+firmware/
+scripts/
+scratch/
+*.pem
+.vscode/
+

@@ -1,8 +1,10 @@
 'use strict';
 
-// User management (admin) + self-service profile (any authenticated user).
-// Mounted behind requireAuth; admin-only routes additionally use requireAdmin.
-// No password length limit anywhere — only non-empty is required.
+/**
+ * @module routes/users
+ * @description REST API routes for self-service password modification and administrator RBAC user management
+ * (user creation, deletion, role updates, and password resets).
+ */
 
 const express = require('express');
 const bcrypt = require('bcryptjs');
@@ -13,16 +15,28 @@ const router = express.Router();
 
 const ROLES = ['admin', 'engineer'];
 
+/**
+ * Sanitizes user database object for public JSON response.
+ * 
+ * @param {Object} u - Database user record
+ * @returns {Object} Public user object
+ */
 function publicUser(u) {
   return { id: u.id, username: u.username, role: u.role, created_at: u.created_at, created_by: u.created_by };
 }
 
-// GET /api/me — current user.
+/**
+ * GET /api/me
+ * Returns profile details for currently authenticated user.
+ */
 router.get('/me', (req, res) => {
   res.json({ username: req.user.username, role: req.user.role });
 });
 
-// POST /api/me/password — change own password. Body: { current_password, new_password }.
+/**
+ * POST /api/me/password
+ * Self-service password change for currently authenticated user.
+ */
 router.post('/me/password', (req, res) => {
   const { current_password, new_password } = req.body || {};
   if (!new_password) return res.status(400).json({ error: 'new_password required' });
@@ -34,14 +48,18 @@ router.post('/me/password', (req, res) => {
   res.json({ ok: true });
 });
 
-// --- Admin-only user management ---
-
-// GET /api/users — list all users.
+/**
+ * GET /api/users
+ * Lists all registered user accounts (Admin only).
+ */
 router.get('/users', requireAdmin, (req, res) => {
   res.json(stmts.listUsers.all().map(publicUser));
 });
 
-// POST /api/users — create a user. Body: { username, password, role }.
+/**
+ * POST /api/users
+ * Creates a new user account (Admin only).
+ */
 router.post('/users', requireAdmin, (req, res) => {
   const { username, password, role } = req.body || {};
   const uname = (username || '').trim();
@@ -61,7 +79,10 @@ router.post('/users', requireAdmin, (req, res) => {
   res.json(publicUser(stmts.getUserById.get(info.lastInsertRowid)));
 });
 
-// DELETE /api/users/:id — remove a user (guards: not self, not the last admin).
+/**
+ * DELETE /api/users/:id
+ * Deletes a user account (Admin only; guards against self-deletion or last admin deletion).
+ */
 router.delete('/users/:id', requireAdmin, (req, res) => {
   const id = parseInt(req.params.id, 10);
   const target = stmts.getUserById.get(id);
@@ -75,7 +96,10 @@ router.delete('/users/:id', requireAdmin, (req, res) => {
   res.json({ ok: true, deleted: id });
 });
 
-// POST /api/users/:id/reset-password — admin resets a user's password. Body: { new_password }.
+/**
+ * POST /api/users/:id/reset-password
+ * Resets target user password (Admin only).
+ */
 router.post('/users/:id/reset-password', requireAdmin, (req, res) => {
   const id = parseInt(req.params.id, 10);
   const target = stmts.getUserById.get(id);
@@ -87,7 +111,10 @@ router.post('/users/:id/reset-password', requireAdmin, (req, res) => {
   res.json({ ok: true });
 });
 
-// PATCH /api/users/:id/role — change a user's role (guard: keep at least one admin).
+/**
+ * PATCH /api/users/:id/role
+ * Updates target user RBAC role (Admin only; guards against demoting last admin).
+ */
 router.patch('/users/:id/role', requireAdmin, (req, res) => {
   const id = parseInt(req.params.id, 10);
   const target = stmts.getUserById.get(id);

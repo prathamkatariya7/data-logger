@@ -1,5 +1,12 @@
 'use strict';
 
+/**
+ * @module routes/ingest
+ * @description Ingestion API route for raw hardware telemetry POST payloads.
+ * Performs temperature conversions, calibration calculations, alarm state evaluation,
+ * decimation-gated storage, and WebSocket snapshot broadcasting.
+ */
+
 const express = require('express');
 const config = require('../config');
 const { stmts, upsertDevice, getOrCreateChannelConfig, nowIso, db } = require('../db/db');
@@ -13,14 +20,35 @@ const realtime = require('../realtime');
 
 const router = express.Router();
 
-// Optional API key gate (X-Device-Key). Only guards ingest, never the dashboard.
+/**
+ * Middleware validating optional X-Device-Key API header.
+ * 
+ * @param {Object} req - Express request
+ * @param {Object} res - Express response
+ * @param {Function} next - Next middleware callback
+ */
 function checkApiKey(req, res, next) {
   if (!config.API_KEY) return next();
   if (req.get('X-Device-Key') === config.API_KEY) return next();
   return res.status(401).json({ error: 'invalid or missing X-Device-Key' });
 }
 
-// POST /api/ingest — raw readings in, converted + (optionally) persisted.
+/**
+ * Normalizes input value to finite number or null.
+ * 
+ * @param {any} v - Input value
+ * @returns {number|null} Parsed number or null
+ */
+function numeric(v) {
+  if (v == null) return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * POST /api/ingest
+ * Primary hardware ingestion endpoint receiving raw PT100 and TC sensor arrays.
+ */
 router.post('/ingest', checkApiKey, (req, res) => {
   const body = req.body || {};
   const deviceId = body.device_id;
@@ -38,7 +66,7 @@ router.post('/ingest', checkApiKey, (req, res) => {
   const isFirstSighting = !stmts.getDevice.get(deviceId);
   const device = upsertDevice(deviceId, !!body.atmega_online);
 
-  // Persist diagnostics (v8 firmware fields; all optional).
+  // Update diagnostic metadata
   stmts.updateDeviceDiagnostics.run({
     device_id: deviceId,
     wifi_rssi: numeric(body.wifi_rssi),
@@ -76,7 +104,7 @@ router.post('/ingest', checkApiKey, (req, res) => {
     const calculated = usable ? calculateTemp(type, rawValue, params) : null;
     const { masterTempC, errorFactorAtTime } = applyCalibration(calculated, cfg);
 
-    // Always update the live cache (drives the dashboard even when stopped).
+    // Update in-memory live channel cache
     live.updateChannel(deviceId, {
       channel_type: type,
       channel_num: num,
@@ -91,11 +119,11 @@ router.post('/ingest', checkApiKey, (req, res) => {
       rtc_date: devDate,
     });
 
-    // Alarm evaluation (on transitions only).
+    // Evaluate threshold alarms
     const ev = alarms.evaluate(deviceId, type, num, calculated, cfg);
     if (ev) alarmEvents.push({ ...ev, ts });
 
-    // Persist only while recording AND due per storage-rate.
+    // Persist reading if active recording session and interval decimation match
     if (recording && shouldStore(deviceId, type, num, interval)) {
       stmts.insertReading.run({
         device_id: deviceId,
@@ -127,7 +155,7 @@ router.post('/ingest', checkApiKey, (req, res) => {
       if (num >= 1 && num <= config.TC_CHANNELS) processChannel('tc', num, entry);
     });
 
-    // Persist alarm transition events (regardless of recording state).
+    // Save alarm events
     for (const ev of alarmEvents) {
       stmts.insertAlarmEvent.run({
         device_id: ev.device_id,
@@ -142,20 +170,13 @@ router.post('/ingest', checkApiKey, (req, res) => {
   });
   tx();
 
-  // Push live snapshot + any alarm events to subscribers.
+  // Broadcast real-time updates over WebSocket
   const snapshot = buildDeviceSnapshot(deviceId);
   realtime.broadcastSnapshot(deviceId, snapshot);
   for (const ev of alarmEvents) realtime.broadcastAlarm(deviceId, ev);
   if (isFirstSighting) realtime.broadcastDeviceList();
 
-  // Echo recording state so the firmware can drive a status LED (v8).
   res.json({ ok: true, recording, session_id: sessionId });
 });
-
-function numeric(v) {
-  if (v == null) return null;
-  const n = Number(v);
-  return Number.isFinite(n) ? n : null;
-}
 
 module.exports = router;

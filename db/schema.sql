@@ -1,18 +1,11 @@
--- Data Logger schema (SQLite / better-sqlite3)
--- See architecture doc §4. Extended for the production-grade upgrade:
--- recording sessions, renamable channels, per-channel alarms, diagnostics.
---
--- NOTE: columns added after v1 are created here for fresh databases AND
--- back-filled on existing databases by the guarded migration runner in db.js
--- (CREATE TABLE IF NOT EXISTS won't add columns to a table that already
--- exists, so the ALTER TABLE migrations there are what upgrade older files).
+-- Data Logger Database Schema (SQLite / better-sqlite3)
+-- Defines core relational tables for users, devices, channel configs,
+-- recording sessions, alarm events, sensor readings, and S3 archives.
 
 PRAGMA journal_mode = WAL;
 PRAGMA foreign_keys = ON;
 
--- Users / RBAC: dashboard login accounts. Roles: 'admin' | 'engineer'.
--- Admins manage users; engineers have full app access but no user management.
--- The first admin is seeded from ADMIN_USER/ADMIN_PASSWORD on first boot.
+-- Users & Role-Based Access Control (RBAC)
 CREATE TABLE IF NOT EXISTS users (
   id             INTEGER PRIMARY KEY AUTOINCREMENT,
   username       TEXT NOT NULL UNIQUE,
@@ -22,18 +15,16 @@ CREATE TABLE IF NOT EXISTS users (
   created_by     TEXT
 );
 
--- §4.1 devices: every device that has ever POSTed, regardless of online state.
+-- Registered devices and connectivity metadata
 CREATE TABLE IF NOT EXISTS devices (
   device_id            TEXT PRIMARY KEY,
   display_name         TEXT NOT NULL,
-  first_seen           TEXT NOT NULL,           -- ISO8601 server time
-  last_seen            TEXT NOT NULL,           -- ISO8601 server time, updated each ingest
+  first_seen           TEXT NOT NULL,           -- ISO8601 server timestamp
+  last_seen            TEXT NOT NULL,           -- ISO8601 server timestamp
   last_atmega_online   INTEGER NOT NULL DEFAULT 0,
-  -- Recording control (upgrade)
   recording_enabled    INTEGER NOT NULL DEFAULT 0,
-  active_session_id    INTEGER,                 -- FK -> sessions.id when recording
-  sample_interval_ms   INTEGER NOT NULL DEFAULT 1000, -- storage-rate (decimation)
-  -- Diagnostics (upgrade)
+  active_session_id    INTEGER,                 -- FK -> sessions.id
+  sample_interval_ms   INTEGER NOT NULL DEFAULT 1000,
   wifi_rssi            INTEGER,
   free_heap            INTEGER,
   fw_version           TEXT,
@@ -41,20 +32,18 @@ CREATE TABLE IF NOT EXISTS devices (
   i2c_consec_fails     INTEGER
 );
 
--- §4.2 channel_config: one row per (device, type, num). Holds formula params,
--- master-calibration state, plus display name / unit / enable / alarm config.
+-- Channel configuration and calibration settings
 CREATE TABLE IF NOT EXISTS channel_config (
   id                    INTEGER PRIMARY KEY AUTOINCREMENT,
   device_id             TEXT NOT NULL,
   channel_type          TEXT NOT NULL,          -- 'pt100' | 'tc'
   channel_num           INTEGER NOT NULL,
-  formula_params        TEXT NOT NULL,          -- JSON
-  master_reference_c    REAL,                   -- nullable: value user typed in
-  master_error_factor   REAL,                   -- nullable: computed at calibration time
-  master_set_at         TEXT,                   -- nullable ISO8601
+  formula_params        TEXT NOT NULL,          -- JSON serialized formula parameters
+  master_reference_c    REAL,
+  master_error_factor   REAL,
+  master_set_at         TEXT,                   -- ISO8601 timestamp
   master_enabled        INTEGER NOT NULL DEFAULT 0,
-  -- Upgrade columns
-  display_name          TEXT,                   -- user-chosen name; null => default label
+  display_name          TEXT,
   unit                  TEXT NOT NULL DEFAULT '°C',
   enabled               INTEGER NOT NULL DEFAULT 1,
   alarm_enabled         INTEGER NOT NULL DEFAULT 0,
@@ -64,27 +53,27 @@ CREATE TABLE IF NOT EXISTS channel_config (
   FOREIGN KEY (device_id) REFERENCES devices(device_id) ON DELETE CASCADE
 );
 
--- Recording sessions: one row per Start/Stop cycle (upgrade).
+-- Recording sessions
 CREATE TABLE IF NOT EXISTS sessions (
   id                    INTEGER PRIMARY KEY AUTOINCREMENT,
   device_id             TEXT NOT NULL,
   name                  TEXT NOT NULL,
   operator              TEXT,
   notes                 TEXT,
-  started_at            TEXT NOT NULL,          -- ISO8601
-  ended_at              TEXT,                   -- ISO8601, null while active
+  started_at            TEXT NOT NULL,          -- ISO8601 timestamp
+  ended_at              TEXT,                   -- ISO8601 timestamp
   sample_interval_ms    INTEGER NOT NULL DEFAULT 1000,
   FOREIGN KEY (device_id) REFERENCES devices(device_id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_sessions_device ON sessions (device_id, started_at);
 
--- Alarm event log: threshold breach / clear transitions (upgrade).
+-- Alarm events log
 CREATE TABLE IF NOT EXISTS alarm_events (
   id                    INTEGER PRIMARY KEY AUTOINCREMENT,
   device_id             TEXT NOT NULL,
   channel_type          TEXT NOT NULL,
   channel_num           INTEGER NOT NULL,
-  ts                    TEXT NOT NULL,          -- ISO8601 server time
+  ts                    TEXT NOT NULL,          -- ISO8601 timestamp
   kind                  TEXT NOT NULL,          -- 'low' | 'high' | 'clear'
   value                 REAL,
   threshold             REAL,
@@ -92,22 +81,22 @@ CREATE TABLE IF NOT EXISTS alarm_events (
 );
 CREATE INDEX IF NOT EXISTS idx_alarm_events ON alarm_events (device_id, ts);
 
--- §4.3 readings: time-series log backing CSV export, live view, last-value cache.
+-- Historical sensor telemetry readings
 CREATE TABLE IF NOT EXISTS readings (
   id                    INTEGER PRIMARY KEY AUTOINCREMENT,
   device_id             TEXT NOT NULL,
   channel_type          TEXT NOT NULL,
   channel_num           INTEGER NOT NULL,
-  ts                    TEXT NOT NULL,          -- server receipt time ISO8601
-  rtc_time              TEXT,                   -- device NTP time string (nullable)
-  rtc_date              TEXT,                   -- device NTP date string (nullable)
+  ts                    TEXT NOT NULL,          -- ISO8601 server timestamp
+  rtc_time              TEXT,
+  rtc_date              TEXT,
   raw_value             REAL,
-  hw_available          INTEGER,                -- pt100 only
-  fault                 INTEGER,                -- tc open-circuit only
+  hw_available          INTEGER,
+  fault                 INTEGER,
   calculated_temp_c     REAL,
-  master_temp_c         REAL,                   -- calculated + error_factor, only if master_enabled
-  error_factor_at_time  REAL,                   -- snapshot so historical rows stay correct
-  session_id            INTEGER,                -- FK -> sessions.id (upgrade); null for legacy rows
+  master_temp_c         REAL,
+  error_factor_at_time  REAL,
+  session_id            INTEGER,
   FOREIGN KEY (device_id) REFERENCES devices(device_id) ON DELETE CASCADE
 );
 
@@ -120,7 +109,7 @@ CREATE INDEX IF NOT EXISTS idx_readings_device_ts
 CREATE INDEX IF NOT EXISTS idx_readings_ts
   ON readings (ts);
 
--- S3 Archives tracking table: stores metadata for exported CSV/GZ historical files
+-- AWS S3 historical archive registry
 CREATE TABLE IF NOT EXISTS s3_archives (
   id                  INTEGER PRIMARY KEY AUTOINCREMENT,
   device_id           TEXT NOT NULL,

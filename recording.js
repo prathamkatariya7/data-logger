@@ -1,23 +1,40 @@
 'use strict';
 
-// Recording sessions + storage-rate (decimation) gate.
-//
-// A device only persists readings to the DB while recording_enabled = 1. Each
-// Start opens a `sessions` row; each Stop closes it. The storage-rate gate
-// throttles how often a given channel is written (sample_interval_ms), so a
-// 1 Hz firmware can be logged at, say, 1 sample / 10 s to save space.
+/**
+ * @module recording
+ * @description Recording session lifecycle manager and sample decimation gate.
+ * Manages start/stop session states and sample storage throttling (sample_interval_ms).
+ */
 
 const { stmts, nowIso } = require('./db/db');
 const config = require('./config');
 
-// device_id -> "type:num" -> last stored epoch ms (in-memory; reset on restart)
+// In-memory throttling map: deviceId -> "type:num" -> last stored timestamp (epoch ms)
 const lastStored = new Map();
 
+/**
+ * Validates and clamps storage interval bounds.
+ * 
+ * @param {number|string} v - Target sample interval in milliseconds
+ * @returns {number} Clamped interval value
+ */
+function clampInterval(v) {
+  const n = parseInt(v, 10);
+  if (!Number.isFinite(n) || n < 100) return config.SAMPLE_INTERVAL_MS;
+  return Math.min(n, 3600000);
+}
+
+/**
+ * Opens a new recording session for a device and enables database logging.
+ * 
+ * @param {string} deviceId - Target device identifier
+ * @param {Object} [options] - Session parameters (name, operator, notes, sample_interval_ms)
+ * @returns {Object|null} Created session record or null if device not found
+ */
 function startSession(deviceId, { name, operator, notes, sample_interval_ms } = {}) {
   const device = stmts.getDevice.get(deviceId);
   if (!device) return null;
 
-  // Close any dangling active session first (defensive).
   if (device.active_session_id) {
     stmts.endSession.run(nowIso(), device.active_session_id);
   }
@@ -39,10 +56,16 @@ function startSession(deviceId, { name, operator, notes, sample_interval_ms } = 
     active_session_id: sessionId,
     sample_interval_ms: interval,
   });
-  lastStored.delete(deviceId); // fresh throttle window for the new session
+  lastStored.delete(deviceId);
   return stmts.getSession.get(sessionId);
 }
 
+/**
+ * Ends active recording session for a device and disables database logging.
+ * 
+ * @param {string} deviceId - Target device identifier
+ * @returns {Object|null} Closed session record or null
+ */
 function stopSession(deviceId) {
   const device = stmts.getDevice.get(deviceId);
   if (!device) return null;
@@ -58,10 +81,16 @@ function stopSession(deviceId) {
   return sessionId ? stmts.getSession.get(sessionId) : null;
 }
 
+/**
+ * Retrieves current recording session status for a device.
+ * 
+ * @param {Object|string} deviceOrId - Device record or device identifier string
+ * @returns {{recording: boolean, session: Object|null, sample_interval_ms: number}} Recording state object
+ */
 function getRecordingState(deviceOrId) {
   const device =
     typeof deviceOrId === 'string' ? stmts.getDevice.get(deviceOrId) : deviceOrId;
-  if (!device) return { recording: false, session: null };
+  if (!device) return { recording: false, session: null, sample_interval_ms: config.SAMPLE_INTERVAL_MS };
   const session = device.active_session_id
     ? stmts.getSession.get(device.active_session_id)
     : null;
@@ -72,7 +101,15 @@ function getRecordingState(deviceOrId) {
   };
 }
 
-// Storage-rate gate: returns true if this channel is due to be written now.
+/**
+ * Decimation gate helper: returns true if sample is due to be persisted to DB.
+ * 
+ * @param {string} deviceId - Target device identifier
+ * @param {string} type - Channel type ('pt100' or 'tc')
+ * @param {number} num - Channel index
+ * @param {number} intervalMs - Configured sample interval
+ * @returns {boolean} True if measurement should be saved to database
+ */
 function shouldStore(deviceId, type, num, intervalMs) {
   const now = Date.now();
   let byChannel = lastStored.get(deviceId);
@@ -87,12 +124,6 @@ function shouldStore(deviceId, type, num, intervalMs) {
     return true;
   }
   return false;
-}
-
-function clampInterval(v) {
-  const n = parseInt(v, 10);
-  if (!Number.isFinite(n) || n < 100) return config.SAMPLE_INTERVAL_MS;
-  return Math.min(n, 3600000); // cap at 1 hour
 }
 
 module.exports = {

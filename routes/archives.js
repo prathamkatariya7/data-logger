@@ -1,7 +1,10 @@
 'use strict';
 
-// Archives API: list, download, and manually trigger S3 archival.
-// All endpoints require dashboard auth (requireAuth applied in server.js).
+/**
+ * @module routes/archives
+ * @description REST API routes for listing S3 historical archives, generating pre-signed download URLs,
+ * triggering manual on-demand S3 export sweeps, and deleting archive records (Admin only).
+ */
 
 const express = require('express');
 const { stmts } = require('../db/db');
@@ -10,7 +13,10 @@ const { performDeviceArchival } = require('../archive-service');
 
 const router = express.Router();
 
-// GET /api/devices/:id/archives — list all S3 archives for a device.
+/**
+ * GET /api/devices/:id/archives
+ * Lists all S3 historical archives recorded for a device.
+ */
 router.get('/:id/archives', (req, res) => {
   try {
     const archives = stmts.listArchivesForDevice.all(req.params.id);
@@ -21,7 +27,10 @@ router.get('/:id/archives', (req, res) => {
   }
 });
 
-// GET /api/devices/:id/archives/:archiveId/download — get pre-signed S3 URL.
+/**
+ * GET /api/devices/:id/archives/:archiveId/download
+ * Generates pre-signed S3 download URL for an archived dataset file.
+ */
 router.get('/:id/archives/:archiveId/download', async (req, res) => {
   try {
     const archive = stmts.getArchiveById.get(Number(req.params.archiveId));
@@ -39,7 +48,10 @@ router.get('/:id/archives/:archiveId/download', async (req, res) => {
   }
 });
 
-// POST /api/devices/:id/archives/export-now — manually archive old data for a device.
+/**
+ * POST /api/devices/:id/archives/export-now
+ * Manually triggers S3 archival sweep for a device.
+ */
 router.post('/:id/archives/export-now', async (req, res) => {
   try {
     const deviceId = req.params.id;
@@ -59,7 +71,10 @@ router.post('/:id/archives/export-now', async (req, res) => {
   }
 });
 
-// DELETE /api/devices/:id/archives/:archiveId — delete a single archive from S3 + DB.
+/**
+ * DELETE /api/devices/:id/archives/:archiveId
+ * Deletes target archive file from AWS S3 storage and removes database tracking entry.
+ */
 router.delete('/:id/archives/:archiveId', async (req, res) => {
   try {
     const archive = stmts.getArchiveById.get(Number(req.params.archiveId));

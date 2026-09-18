@@ -1,12 +1,21 @@
 'use strict';
 
-// Threshold alarms. Pure evaluation + a small in-memory per-channel state
-// machine so we only log/broadcast on transitions (normal -> alarm -> clear),
-// not on every reading while a channel stays out of range.
+/**
+ * @module alarms
+ * @description In-memory state machine for per-channel threshold alarm evaluation.
+ * Tracks state transitions ('normal' -> 'low' | 'high' -> 'clear') to emit alarm events
+ * only when status changes, preventing redundant notifications.
+ */
 
-// device_id -> "type:num" -> 'normal' | 'low' | 'high'
+// In-memory state map: deviceId -> "type:num" -> 'normal' | 'low' | 'high'
 const state = new Map();
 
+/**
+ * Gets or initializes the alarm state sub-map for a device.
+ * 
+ * @param {string} deviceId - Target device identifier
+ * @returns {Map<string, string>} Channel status map
+ */
 function keyState(deviceId) {
   let m = state.get(deviceId);
   if (!m) {
@@ -16,9 +25,13 @@ function keyState(deviceId) {
   return m;
 }
 
-// Given the latest calculated value and the channel's alarm config, decide the
-// new alarm status. Returns 'normal' | 'low' | 'high' | null (null = no alarm
-// configured / no value).
+/**
+ * Evaluates a value against alarm threshold configuration.
+ * 
+ * @param {number|null} value - Sensor measurement
+ * @param {Object} cfg - Channel configuration object
+ * @returns {'normal'|'low'|'high'|null} Evaluated alarm status
+ */
 function classify(value, cfg) {
   if (!cfg || !cfg.alarm_enabled || value == null || Number.isNaN(value)) return null;
   if (cfg.alarm_high != null && value > cfg.alarm_high) return 'high';
@@ -26,8 +39,16 @@ function classify(value, cfg) {
   return 'normal';
 }
 
-// Evaluate a channel and, if the alarm status changed, return a transition
-// event describing it (else null). `cfg` is a channel_config row.
+/**
+ * Evaluates channel reading and returns a state transition event if status changed.
+ * 
+ * @param {string} deviceId - Device identifier
+ * @param {string} type - Channel type ('pt100' or 'tc')
+ * @param {number} num - Channel index
+ * @param {number} value - Temperature reading
+ * @param {Object} cfg - Channel configuration
+ * @returns {Object|null} Transition event object if state changed, else null
+ */
 function evaluate(deviceId, type, num, value, cfg) {
   const status = classify(value, cfg);
   if (status == null) return null;
@@ -53,13 +74,20 @@ function evaluate(deviceId, type, num, value, cfg) {
     device_id: deviceId,
     channel_type: type,
     channel_num: num,
-    kind: status, // 'low' | 'high'
+    kind: status,
     value,
     threshold: status === 'high' ? cfg.alarm_high : cfg.alarm_low,
   };
 }
 
-// Current live alarm status for a channel (for snapshot rendering).
+/**
+ * Returns current alarm status for a specific channel.
+ * 
+ * @param {string} deviceId - Device identifier
+ * @param {string} type - Channel type
+ * @param {number} num - Channel index
+ * @returns {'normal'|'low'|'high'} Current alarm state
+ */
 function currentStatus(deviceId, type, num) {
   const m = state.get(deviceId);
   if (!m) return 'normal';

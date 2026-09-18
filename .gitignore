@@ -5,7 +5,9 @@ data/*.db
 data/*.db-shm
 data/*.db-wal
 *.log
+*.pem
+*.jar
 .DS_Store
 .env
 .snowflake/
-*.jar
+.vscode/

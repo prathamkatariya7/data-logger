@@ -1,38 +1,65 @@
 'use strict';
 
-// Printable HTML summary report for a device (optionally a session). Opens in a
-// new tab styled for print; the user prints to PDF. No headless-browser dep.
+/**
+ * @module routes/reports
+ * @description Printable HTML summary report generator for devices and recording sessions.
+ * Renders print-optimized HTML tables containing channel statistics and alarm history.
+ */
 
 const express = require('express');
 const config = require('../config');
 const { stmts, db } = require('../db/db');
-const { rowTimestamp } = require('../csvutil');
 
 const router = express.Router();
 
+/**
+ * Escapes strings for safe HTML rendering.
+ * 
+ * @param {any} s - Raw input
+ * @returns {string} Escaped HTML string
+ */
 function esc(s) {
   return String(s == null ? '' : s).replace(/[&<>"]/g, (c) =>
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])
   );
 }
+
+/**
+ * Formats numeric value for HTML table output.
+ * 
+ * @param {number|null} v - Numeric value
+ * @param {number} [d=2] - Decimal places
+ * @returns {string} Formatted number string or placeholder dash
+ */
 function num(v, d = 2) {
   return v == null ? '—' : Number(v).toFixed(d);
 }
 
-// Per-channel stats within an optional session/time window.
+/**
+ * Queries channel statistics over target time/session scope.
+ * 
+ * @param {string} deviceId - Target device identifier
+ * @param {string} type - Channel type ('pt100' or 'tc')
+ * @param {number} n - Channel index
+ * @param {string} whereExtra - Extra SQL WHERE clause conditions
+ * @param {Array} args - Bound SQL parameters
+ * @returns {Object} Aggregated channel statistics
+ */
 function channelStats(deviceId, type, n, whereExtra, args) {
   const row = db
     .prepare(
       `SELECT COUNT(calculated_temp_c) AS n, MIN(calculated_temp_c) AS mn,
               MAX(calculated_temp_c) AS mx, AVG(calculated_temp_c) AS av
-       FROM readings WHERE device_id = ? AND channel_type = ? AND channel_num = ?` + whereExtra,
-      ...[]
+       FROM readings WHERE device_id = ? AND channel_type = ? AND channel_num = ?` + whereExtra
     )
     .get(deviceId, type, n, ...args);
   return row;
 }
 
-// GET /api/devices/:id/report?session_id=..&from=..&to=..
+/**
+ * GET /api/devices/:id/report
+ * Renders printable HTML summary report.
+ */
 router.get('/:id/report', (req, res) => {
   const device = stmts.getDevice.get(req.params.id);
   if (!device) return res.status(404).send('device not found');

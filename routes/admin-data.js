@@ -1,15 +1,21 @@
 'use strict';
 
-// Admin Data Management API: filtered counting, deletion, and vacuum.
-// All endpoints require admin role (requireAdmin applied in server.js).
+/**
+ * @module routes/admin-data
+ * @description REST API routes for administrative data management, including filtered row counting,
+ * selective database/S3 purge operations, manual database VACUUM compaction, and storage statistics.
+ */
 
 const express = require('express');
-const { stmts, nowIso, countFilteredReadings, deleteFilteredReadings, vacuumDatabase } = require('../db/db');
+const { stmts, countFilteredReadings, deleteFilteredReadings, vacuumDatabase } = require('../db/db');
 const s3 = require('../s3');
 
 const router = express.Router();
 
-// POST /api/admin/data/count — preview how many rows match the filter.
+/**
+ * POST /api/admin/data/count
+ * Previews total reading row count matching specified filter parameters (Admin only).
+ */
 router.post('/data/count', (req, res) => {
   try {
     const filters = req.body || {};
@@ -21,9 +27,10 @@ router.post('/data/count', (req, res) => {
   }
 });
 
-// POST /api/admin/data/delete — delete readings matching filters.
-// Body: { device_id, channel_type, channel_num, start_date, end_date, target, vacuum }
-// target: 'db' | 's3' | 'both' (default 'db')
+/**
+ * POST /api/admin/data/delete
+ * Deletes reading records from database and/or S3 archive storage matching filter criteria (Admin only).
+ */
 router.post('/data/delete', async (req, res) => {
   try {
     const { device_id, channel_type, channel_num, start_date, end_date, target, vacuum } = req.body || {};
@@ -31,7 +38,6 @@ router.post('/data/delete', async (req, res) => {
     let dbDeleted = 0;
     let s3Deleted = 0;
 
-    // Delete from local SQLite database
     if (scope === 'db' || scope === 'both') {
       dbDeleted = deleteFilteredReadings({
         device_id: device_id || 'all',
@@ -43,7 +49,6 @@ router.post('/data/delete', async (req, res) => {
       console.log(`[admin-data] deleted ${dbDeleted} readings from DB (user: ${req.user.username})`);
     }
 
-    // Delete from S3 archives
     if ((scope === 's3' || scope === 'both') && s3.isS3Configured()) {
       let archives = [];
       if (!device_id || device_id === 'all') {
@@ -56,7 +61,6 @@ router.post('/data/delete', async (req, res) => {
         const keysToDelete = archives.map((a) => a.archive_key);
         await s3.deleteObjects(keysToDelete);
 
-        // Remove tracking rows
         if (!device_id || device_id === 'all') {
           stmts.deleteAllArchives.run();
         } else {
@@ -67,7 +71,6 @@ router.post('/data/delete', async (req, res) => {
       }
     }
 
-    // Optional vacuum to reclaim disk space
     if (vacuum) {
       vacuumDatabase();
       console.log(`[admin-data] vacuumed database (user: ${req.user.username})`);
@@ -80,7 +83,10 @@ router.post('/data/delete', async (req, res) => {
   }
 });
 
-// POST /api/admin/data/vacuum — manually compact the SQLite database.
+/**
+ * POST /api/admin/data/vacuum
+ * Manually executes WAL checkpoint and SQLite database VACUUM compaction (Admin only).
+ */
 router.post('/data/vacuum', (req, res) => {
   try {
     vacuumDatabase();
@@ -92,7 +98,10 @@ router.post('/data/vacuum', (req, res) => {
   }
 });
 
-// GET /api/admin/data/stats — storage statistics overview.
+/**
+ * GET /api/admin/data/stats
+ * Returns overall data storage metrics across database readings and S3 archives per device (Admin only).
+ */
 router.get('/data/stats', (req, res) => {
   try {
     const { db: database } = require('../db/db');
