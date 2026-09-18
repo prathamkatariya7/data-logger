@@ -11,8 +11,9 @@ import SessionsPanel from '../components/SessionsPanel.jsx';
 import ChartPanel from '../components/ChartPanel.jsx';
 import ExportPanel from '../components/ExportPanel.jsx';
 import ArchivesPanel from '../components/ArchivesPanel.jsx';
+import { useAuth } from '../lib/auth.jsx';
 
-const TABS = ['Overview', 'Charts', 'Sessions', 'Alarms', 'Diagnostics', 'Export', 'Archives'];
+const ALL_TABS = ['Overview', 'Charts', 'Sessions', 'Alarms', 'Diagnostics', 'Export', 'Archives'];
 const CHART_COLORS = ['#4a9eff', '#34d399', '#f59e0b', '#a78bfa', '#f472b6', '#22d3ee', '#facc15', '#fb7185', '#4ade80', '#60a5fa', '#f97316', '#e879f9'];
 const MAX_POINTS = 300;
 
@@ -31,6 +32,9 @@ function activeAlarms(snap) {
 
 export default function DeviceChannelGrid() {
   const { id } = useParams();
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
+  const TABS = isAdmin ? ALL_TABS : ALL_TABS.filter((t) => t !== 'Archives');
   const [snap, setSnap] = useState(null);
   const [err, setErr] = useState('');
   const [tab, setTab] = useState('Overview');

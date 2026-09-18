@@ -39,7 +39,7 @@ app.use('/api/devices', requireAuth, devicesRouter); // list, rename, recording,
 app.use('/api/devices', requireAuth, reportsRouter); // /:id/report
 app.use('/api/devices/:id/channels', requireAuth, channelsRouter); // config, meta, alarm, stats
 app.use('/api/devices/:id/channels', requireAuth, logsRouter); // per-channel csv/json/xlsx
-app.use('/api/devices', requireAuth, archivesRouter); // /:id/archives
+app.use('/api/devices', requireAuth, requireAdmin, archivesRouter); // /:id/archives (admin only)
 app.use('/api/admin', requireAuth, requireAdmin, adminDataRouter); // /api/admin/data/*
 
 // --- Static frontend (built React app) ---

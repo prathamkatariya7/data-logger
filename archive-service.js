@@ -92,6 +92,9 @@ async function performDeviceArchival(deviceId, cutoffDays = 1) {
     deleteStmt.run(deviceId, cutoff, rows.length);
     console.log(`[archive-service] Processed & purged ${processedRows.toLocaleString()} / ${totalRows.toLocaleString()} rows...`);
 
+    // Yield to event loop so HTTP server and Socket.IO remain responsive
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
     if (rows.length < BATCH_SIZE) break;
   }
 
