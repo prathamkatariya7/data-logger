@@ -264,60 +264,70 @@ router.get('/:id/download/all.json', (req, res) => {
 
 /**
  * GET /api/devices/:id/download/all.xlsx
- * Wide-format multi-channel Excel spreadsheet data export.
+ * Wide-format multi-channel Excel spreadsheet data export using low-memory streaming writer.
  */
 router.get('/:id/download/all.xlsx', async (req, res) => {
-  if (!stmts.getDevice.get(req.params.id)) return res.status(404).send('device not found');
-  const withMaster = req.query.with_master === 'true';
-  const range = tsRange(req.query.from, req.query.to);
-  const sessionId = req.query.session_id ? parseInt(req.query.session_id, 10) : null;
-  const cols = buildDeviceColumns(req.params.id);
+  try {
+    if (!stmts.getDevice.get(req.params.id)) return res.status(404).send('device not found');
+    const withMaster = req.query.with_master === 'true';
+    const range = tsRange(req.query.from, req.query.to);
+    const sessionId = req.query.session_id ? parseInt(req.query.session_id, 10) : null;
+    const cols = buildDeviceColumns(req.params.id);
 
-  const ExcelJS = require('exceljs');
-  const wb = new ExcelJS.Workbook();
-  wb.creator = 'Data Logger';
-  const ws = wb.addWorksheet('readings');
-  const columns = [{ header: 'Timestamp', key: 'timestamp', width: 22 }];
-  for (const c of cols) {
-    if (withMaster) {
-      columns.push({ header: `${c.label}_calc`, key: `${c.key}_calc`, width: 14 });
-      columns.push({ header: `${c.label}_master`, key: `${c.key}_master`, width: 14 });
-    } else {
-      columns.push({ header: c.label, key: c.key, width: 14 });
-    }
-  }
-  ws.columns = columns;
-  ws.getRow(1).font = { bold: true };
+    const tag = withMaster ? 'with_master' : 'calculated';
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${req.params.id}_all_${tag}.xlsx"`);
 
-  const extra = sessionId ? ' AND session_id = ?' : '';
-  const sql =
-    `SELECT ts, rtc_date, rtc_time, channel_type, channel_num, calculated_temp_c, master_temp_c
-     FROM readings WHERE device_id = ?` + range.sql + extra + ` ORDER BY ts ASC, id ASC`;
-  const args = [req.params.id, ...range.args];
-  if (sessionId) args.push(sessionId);
+    const ExcelJS = require('exceljs');
+    const workbook = new ExcelJS.stream.xlsx.WorkbookWriter({
+      stream: res,
+      useStyles: false,
+      useSharedStrings: false,
+    });
+    const ws = workbook.addWorksheet('readings');
 
-  let cur = null, bucket = null;
-  const flush = () => {
-    if (!bucket) return;
-    const row = { timestamp: cur };
+    const columns = [{ header: 'Timestamp', key: 'timestamp', width: 22 }];
     for (const c of cols) {
-      const v = bucket.get(c.key);
-      if (withMaster) { row[`${c.key}_calc`] = v ? v.calc : null; row[`${c.key}_master`] = v ? v.master : null; }
-      else row[c.key] = v ? v.calc : null;
+      if (withMaster) {
+        columns.push({ header: `${c.label}_calc`, key: `${c.key}_calc`, width: 14 });
+        columns.push({ header: `${c.label}_master`, key: `${c.key}_master`, width: 14 });
+      } else {
+        columns.push({ header: c.label, key: c.key, width: 14 });
+      }
     }
-    ws.addRow(row);
-  };
-  for (const r of db.prepare(sql).iterate(...args)) {
-    if (r.ts !== cur) { flush(); cur = rowTimestamp(r); bucket = new Map(); }
-    bucket.set(`${r.channel_type}_${r.channel_num}`, { calc: r.calculated_temp_c, master: r.master_temp_c });
-  }
-  flush();
+    ws.columns = columns;
 
-  const tag = withMaster ? 'with_master' : 'calculated';
-  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-  res.setHeader('Content-Disposition', `attachment; filename="${req.params.id}_all_${tag}.xlsx"`);
-  await wb.xlsx.write(res);
-  res.end();
+    const extra = sessionId ? ' AND session_id = ?' : '';
+    const sql =
+      `SELECT ts, rtc_date, rtc_time, channel_type, channel_num, calculated_temp_c, master_temp_c
+       FROM readings WHERE device_id = ?` + range.sql + extra + ` ORDER BY ts ASC, id ASC`;
+    const args = [req.params.id, ...range.args];
+    if (sessionId) args.push(sessionId);
+
+    let cur = null, bucket = null;
+    const flush = () => {
+      if (!bucket) return;
+      const row = { timestamp: cur };
+      for (const c of cols) {
+        const v = bucket.get(c.key);
+        if (withMaster) { row[`${c.key}_calc`] = v ? v.calc : null; row[`${c.key}_master`] = v ? v.master : null; }
+        else row[c.key] = v ? v.calc : null;
+      }
+      ws.addRow(row).commit();
+    };
+
+    for (const r of db.prepare(sql).iterate(...args)) {
+      if (r.ts !== cur) { flush(); cur = rowTimestamp(r); bucket = new Map(); }
+      bucket.set(`${r.channel_type}_${r.channel_num}`, { calc: r.calculated_temp_c, master: r.master_temp_c });
+    }
+    flush();
+
+    await ws.commit();
+    await workbook.commit();
+  } catch (err) {
+    console.error('[export-excel] error:', err.message);
+    if (!res.headersSent) res.status(500).json({ error: 'Excel export failed' });
+  }
 });
 
 /**

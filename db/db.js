@@ -17,6 +17,7 @@ fs.mkdirSync(path.dirname(config.DB_PATH), { recursive: true });
 const db = new Database(config.DB_PATH);
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
+db.pragma('busy_timeout = 10000');
 
 // Initialize base table schema
 const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8');

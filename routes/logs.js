@@ -53,12 +53,13 @@ function channelLabel(deviceId, type, num) {
 }
 
 /**
- * Queries database reading records for a specific channel using optional date range and session filters.
+ * Streams database reading records for a specific channel using optional date range and session filters.
+ * Returns an iterator to prevent array buffer heap allocation.
  * 
  * @param {Object} req - Express request
- * @returns {Array<Object>} Database reading records
+ * @returns {Iterable<Object>} Database reading iterator
  */
-function fetchChannelRows(req) {
+function iterateChannelRows(req) {
   const range = tsRange(req.query.from, req.query.to);
   const sessionId = req.query.session_id ? parseInt(req.query.session_id, 10) : null;
   const extra = sessionId ? ' AND session_id = ?' : '';
@@ -68,7 +69,7 @@ function fetchChannelRows(req) {
     ` ORDER BY ts ASC, id ASC`;
   const args = [req.params.id, req.params.type, parseInt(req.params.num, 10), ...range.args];
   if (sessionId) args.push(sessionId);
-  return db.prepare(sql).all(...args);
+  return db.prepare(sql).iterate(...args);
 }
 
 /**
@@ -82,7 +83,6 @@ router.get('/:type/:num/log.csv', (req, res) => {
 
   const withMaster = req.query.with_master === 'true';
   const { name, unit } = channelLabel(req.params.id, ch.type, ch.num);
-  const rows = fetchChannelRows(req);
 
   const valCol = `${name} (${unit})`;
   const header = withMaster
@@ -95,7 +95,7 @@ router.get('/:type/:num/log.csv', (req, res) => {
   res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
   res.write(header.map(csvCell).join(',') + '\n');
 
-  for (const r of rows) {
+  for (const r of iterateChannelRows(req)) {
     const line = withMaster
       ? [csvCell(rowTimestamp(r)), fmt(r.calculated_temp_c), fmt(r.master_temp_c), fmt(r.error_factor_at_time)]
       : [csvCell(rowTimestamp(r)), fmt(r.calculated_temp_c)];
@@ -113,15 +113,18 @@ router.get('/:type/:num/log.json', (req, res) => {
   const ch = parseChannel(req, res);
   if (!ch) return;
   const { name, unit } = channelLabel(req.params.id, ch.type, ch.num);
-  const rows = fetchChannelRows(req).map((r) => ({
-    timestamp: rowTimestamp(r),
-    ts: r.ts,
-    calculated_temp_c: r.calculated_temp_c,
-    master_temp_c: r.master_temp_c,
-    error_factor: r.error_factor_at_time,
-    raw_value: r.raw_value,
-    session_id: r.session_id,
-  }));
+  const rows = [];
+  for (const r of iterateChannelRows(req)) {
+    rows.push({
+      timestamp: rowTimestamp(r),
+      ts: r.ts,
+      calculated_temp_c: r.calculated_temp_c,
+      master_temp_c: r.master_temp_c,
+      error_factor: r.error_factor_at_time,
+      raw_value: r.raw_value,
+      session_id: r.session_id,
+    });
+  }
   const safe = name.replace(/[^\w.-]+/g, '_');
   res.setHeader('Content-Disposition', `attachment; filename="${req.params.id}_${safe}.json"`);
   res.json({ device_id: req.params.id, channel: name, unit, count: rows.length, readings: rows });
@@ -129,44 +132,51 @@ router.get('/:type/:num/log.json', (req, res) => {
 
 /**
  * GET /api/devices/:id/channels/:type/:num/log.xlsx
- * Exports single channel readings as Excel spreadsheet file.
+ * Exports single channel readings as Excel spreadsheet using low-memory streaming writer.
  */
 router.get('/:type/:num/log.xlsx', async (req, res) => {
-  if (!stmts.getDevice.get(req.params.id)) return res.status(404).send('device not found');
-  const ch = parseChannel(req, res);
-  if (!ch) return;
+  try {
+    if (!stmts.getDevice.get(req.params.id)) return res.status(404).send('device not found');
+    const ch = parseChannel(req, res);
+    if (!ch) return;
 
-  const withMaster = req.query.with_master === 'true';
-  const { name, unit } = channelLabel(req.params.id, ch.type, ch.num);
-  const rows = fetchChannelRows(req);
+    const withMaster = req.query.with_master === 'true';
+    const { name, unit } = channelLabel(req.params.id, ch.type, ch.num);
 
-  const ExcelJS = require('exceljs');
-  const wb = new ExcelJS.Workbook();
-  wb.creator = 'Data Logger';
-  const ws = wb.addWorksheet(name.slice(0, 31) || 'channel');
+    const safe = name.replace(/[^\w.-]+/g, '_');
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${req.params.id}_${safe}.xlsx"`);
 
-  const columns = [
-    { header: 'Timestamp', key: 'timestamp', width: 22 },
-    { header: `${name} (${unit})`, key: 'calc', width: 16 },
-  ];
-  if (withMaster) {
-    columns.push({ header: `Master (${unit})`, key: 'master', width: 16 });
-    columns.push({ header: 'Error factor', key: 'ef', width: 14 });
+    const ExcelJS = require('exceljs');
+    const workbook = new ExcelJS.stream.xlsx.WorkbookWriter({
+      stream: res,
+      useStyles: false,
+      useSharedStrings: false,
+    });
+    const ws = workbook.addWorksheet(name.slice(0, 31) || 'channel');
+
+    const columns = [
+      { header: 'Timestamp', key: 'timestamp', width: 22 },
+      { header: `${name} (${unit})`, key: 'calc', width: 16 },
+    ];
+    if (withMaster) {
+      columns.push({ header: `Master (${unit})`, key: 'master', width: 16 });
+      columns.push({ header: 'Error factor', key: 'ef', width: 14 });
+    }
+    ws.columns = columns;
+
+    for (const r of iterateChannelRows(req)) {
+      const row = { timestamp: rowTimestamp(r), calc: r.calculated_temp_c };
+      if (withMaster) { row.master = r.master_temp_c; row.ef = r.error_factor_at_time; }
+      ws.addRow(row).commit();
+    }
+
+    await ws.commit();
+    await workbook.commit();
+  } catch (err) {
+    console.error('[export-channel-excel] error:', err.message);
+    if (!res.headersSent) res.status(500).json({ error: 'Excel export failed' });
   }
-  ws.columns = columns;
-  ws.getRow(1).font = { bold: true };
-
-  for (const r of rows) {
-    const row = { timestamp: rowTimestamp(r), calc: r.calculated_temp_c };
-    if (withMaster) { row.master = r.master_temp_c; row.ef = r.error_factor_at_time; }
-    ws.addRow(row);
-  }
-
-  const safe = name.replace(/[^\w.-]+/g, '_');
-  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-  res.setHeader('Content-Disposition', `attachment; filename="${req.params.id}_${safe}.xlsx"`);
-  await wb.xlsx.write(res);
-  res.end();
 });
 
 /**
