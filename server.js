@@ -73,13 +73,21 @@ if (fs.existsSync(distDir)) {
 const server = http.createServer(app);
 realtime.init(server);
 
-// --- Automatic 24-Hour S3 Archival Sweep ---
+// --- Automatic Daily 12:00 AM Midnight S3 Archival Sweep ---
 const { runAutoArchiveSweep } = require('./archive-service');
 if (config.S3_AUTO_ARCHIVE) {
-  // Run 1 minute after server start, then repeat every 24 hours (86,400,000 ms).
-  setTimeout(() => runAutoArchiveSweep(1), 60000);
-  const autoArchiveTimer = setInterval(() => runAutoArchiveSweep(1), 86400000);
-  autoArchiveTimer.unref?.();
+  const now = new Date();
+  const nextMidnight = new Date(now);
+  nextMidnight.setHours(24, 0, 0, 0);
+  const msUntilMidnight = nextMidnight.getTime() - now.getTime();
+
+  console.log(`[auto-archive] Scheduled daily S3 archival sweep for 12:00 AM midnight (in ${Math.round(msUntilMidnight / 60000)} mins).`);
+
+  setTimeout(() => {
+    runAutoArchiveSweep(1);
+    const dailyTimer = setInterval(() => runAutoArchiveSweep(1), 86400000);
+    dailyTimer.unref?.();
+  }, msUntilMidnight).unref?.();
 }
 
 server.listen(config.PORT, config.HOST, () => {
