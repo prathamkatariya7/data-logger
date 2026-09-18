@@ -62,7 +62,7 @@ async function performDeviceArchival(deviceId, cutoffDays = 1) {
 
   let processedRows = 0;
   const fetchStmt = db.prepare(
-    'SELECT * FROM readings WHERE device_id = ? AND ts < ? ORDER BY ts ASC LIMIT ?'
+    'SELECT * FROM readings WHERE device_id = ? AND ts < ? ORDER BY id ASC LIMIT ?'
   );
   const deleteStmt = db.prepare(
     'DELETE FROM readings WHERE device_id = ? AND id >= ? AND id <= ?'
