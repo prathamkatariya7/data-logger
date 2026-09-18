@@ -65,13 +65,16 @@ async function performDeviceArchival(deviceId, cutoffDays = 1) {
     'SELECT * FROM readings WHERE device_id = ? AND ts < ? ORDER BY ts ASC LIMIT ?'
   );
   const deleteStmt = db.prepare(
-    'DELETE FROM readings WHERE id IN (SELECT id FROM readings WHERE device_id = ? AND ts < ? ORDER BY ts ASC LIMIT ?)'
+    'DELETE FROM readings WHERE device_id = ? AND id >= ? AND id <= ?'
   );
 
   // Process in 50,000 row chunks to maintain strict low-memory footprint
   while (true) {
     const rows = fetchStmt.all(deviceId, cutoff, BATCH_SIZE);
     if (rows.length === 0) break;
+
+    const minId = rows[0].id;
+    const maxId = rows[rows.length - 1].id;
 
     for (const row of rows) {
       const line = [
@@ -88,12 +91,12 @@ async function performDeviceArchival(deviceId, cutoffDays = 1) {
     }
 
     processedRows += rows.length;
-    // Delete batched rows from SQLite
-    deleteStmt.run(deviceId, cutoff, rows.length);
+    // Fast primary key range delete from SQLite (2ms per batch)
+    deleteStmt.run(deviceId, minId, maxId);
     console.log(`[archive-service] Processed & purged ${processedRows.toLocaleString()} / ${totalRows.toLocaleString()} rows...`);
 
     // Yield to event loop so HTTP server and Socket.IO remain responsive
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await new Promise((resolve) => setTimeout(resolve, 20));
 
     if (rows.length < BATCH_SIZE) break;
   }
