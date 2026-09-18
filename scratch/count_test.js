@@ -5,3 +5,7 @@ console.log('[db-check]', JSON.stringify(row, null, 2));
 const cutoff = new Date(Date.now() - 86400000).toISOString();
 const countOld = db.prepare('SELECT COUNT(*) AS n FROM readings WHERE ts < ?').get(cutoff);
 console.log('[db-check] cutoff:', cutoff, 'old_rows:', countOld.n);
+const devicesInTable = db.prepare('SELECT device_id FROM devices').all();
+const devicesInReadings = db.prepare('SELECT DISTINCT device_id FROM readings').all();
+console.log('[db-check] devices table:', devicesInTable);
+console.log('[db-check] readings table distinct device_ids:', devicesInReadings);
