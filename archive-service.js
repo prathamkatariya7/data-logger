@@ -98,8 +98,8 @@ async function performDeviceArchival(deviceId, cutoffDays = 1) {
     processedRows += rows.length;
     console.log(`[archive-service] Processed & purged ${processedRows.toLocaleString()} / ${totalRows.toLocaleString()} rows...`);
 
-    // Yield to event loop so HTTP server and Socket.IO remain responsive
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    // Yield to event loop (100ms delay to keep disk I/O and CPU low on t2.micro)
+    await new Promise((resolve) => setTimeout(resolve, 100));
 
     if (rows.length < BATCH_SIZE) break;
   }
